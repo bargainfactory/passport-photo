@@ -6,11 +6,18 @@ used for cropping and validation.
 
 import cv2
 import numpy as np
-import streamlit as st
+from functools import lru_cache
 from config.constants import FACE_SCALE_FACTOR, FACE_MIN_NEIGHBORS, FACE_MIN_SIZE
 
+# Optional Streamlit caching — use lru_cache when running under FastAPI
+try:
+    import streamlit as st
+    _cache = st.cache_resource
+except Exception:
+    _cache = lru_cache(maxsize=1)
 
-@st.cache_resource
+
+@_cache
 def _load_face_cascade():
     """Load and cache the Haar cascade classifier."""
     cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -20,7 +27,7 @@ def _load_face_cascade():
     return cascade
 
 
-@st.cache_resource
+@_cache
 def _load_eye_cascade():
     """Load and cache the eye Haar cascade classifier."""
     cascade_path = cv2.data.haarcascades + "haarcascade_eye.xml"

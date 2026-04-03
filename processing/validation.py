@@ -75,7 +75,7 @@ def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
     tilt = face_metrics.get("tilt_degrees", 0)
     results.append({
         "check": "Head tilt",
-        "passed": tilt < MAX_TILT_DEGREES,
+        "passed": bool(tilt < MAX_TILT_DEGREES),
         "message": (
             f"Head tilt: {tilt:.1f}\u00b0. "
             + ("Acceptable." if tilt < MAX_TILT_DEGREES
@@ -97,6 +97,22 @@ def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
         "check": "Red-eye",
         "passed": redeye_ok,
         "message": "No red-eye detected." if redeye_ok else "Possible red-eye detected. Consider retaking without flash.",
+    })
+
+    # 8. Eyes open check
+    eyes_open, eyes_msg = _check_eyes_open(image_bgr, face_rect)
+    results.append({
+        "check": "Eyes open",
+        "passed": eyes_open,
+        "message": eyes_msg,
+    })
+
+    # 9. Mouth closed (no teeth showing)
+    mouth_closed, mouth_msg = _check_mouth_closed(image_bgr, face_rect)
+    results.append({
+        "check": "Mouth closed",
+        "passed": mouth_closed,
+        "message": mouth_msg,
     })
 
     return results
@@ -150,4 +166,93 @@ def _check_red_eye(image_bgr, face_rect):
     red_mask = (r > 150) & (r > g * 1.5) & (r > b * 1.5)
     red_pct = np.sum(red_mask) / red_mask.size * 100
 
-    return red_pct < 2  # Less than 2% red pixels = no red-eye
+    return bool(red_pct < 2)  # Less than 2% red pixels = no red-eye
+
+
+def _check_eyes_open(image_bgr, face_rect):
+    """Check if both eyes are open using eye aspect ratio heuristic.
+
+    Detects eyes via Haar cascade, then checks if each eye region has
+    enough dark pixels (iris/pupil) to indicate the eye is open.
+    """
+    x, y, fw, fh = face_rect
+
+    # Eye region: upper 20-45% of face
+    eye_top = y + int(fh * 0.18)
+    eye_bottom = y + int(fh * 0.45)
+    eye_left = x + int(fw * 0.05)
+    eye_right = x + int(fw * 0.95)
+
+    if eye_top >= eye_bottom or eye_left >= eye_right:
+        return True, "Unable to assess eyes."
+
+    eye_region = image_bgr[eye_top:eye_bottom, eye_left:eye_right]
+    if eye_region.size == 0:
+        return True, "Unable to assess eyes."
+
+    gray_eyes = cv2.cvtColor(eye_region, cv2.COLOR_BGR2GRAY)
+
+    # Use Haar cascade for eye detection
+    eye_cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_eye.xml"
+    )
+    eyes = eye_cascade.detectMultiScale(
+        gray_eyes, scaleFactor=1.1, minNeighbors=3,
+        minSize=(int(fw * 0.06), int(fh * 0.03)),
+    )
+
+    if len(eyes) < 2:
+        # Fewer than 2 eyes detected — likely closed or obscured
+        # Double-check with eye-open cascade
+        eye_open_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml"
+        )
+        eyes_open = eye_open_cascade.detectMultiScale(
+            gray_eyes, scaleFactor=1.1, minNeighbors=3,
+            minSize=(int(fw * 0.06), int(fh * 0.03)),
+        )
+        if len(eyes_open) < 2:
+            return False, "Eyes may be closed. Keep both eyes open and clearly visible."
+
+    return True, "Both eyes appear open."
+
+
+def _check_mouth_closed(image_bgr, face_rect):
+    """Check if the mouth is closed (no teeth showing).
+
+    Looks at the lower face region for bright white pixels that indicate
+    exposed teeth against the darker lip/skin area.
+    """
+    x, y, fw, fh = face_rect
+    h, w = image_bgr.shape[:2]
+
+    # Mouth region: lower 30% of face, center 60% width
+    mouth_top = y + int(fh * 0.65)
+    mouth_bottom = min(h, y + int(fh * 1.0))
+    mouth_left = x + int(fw * 0.2)
+    mouth_right = x + int(fw * 0.8)
+
+    if mouth_top >= mouth_bottom or mouth_left >= mouth_right:
+        return True, "Unable to assess mouth."
+
+    mouth_region = image_bgr[mouth_top:mouth_bottom, mouth_left:mouth_right]
+    if mouth_region.size == 0:
+        return True, "Unable to assess mouth."
+
+    # Convert to LAB for luminance analysis
+    lab = cv2.cvtColor(mouth_region, cv2.COLOR_BGR2LAB)
+    l_channel = lab[:, :, 0]
+
+    # Teeth are distinctly brighter than surrounding lip/skin area
+    # High luminance + low saturation = likely teeth
+    hsv = cv2.cvtColor(mouth_region, cv2.COLOR_BGR2HSV)
+    saturation = hsv[:, :, 1]
+
+    # Teeth: bright (L > 180) and low saturation (S < 60)
+    teeth_mask = (l_channel > 180) & (saturation < 60)
+    teeth_pct = float(np.sum(teeth_mask)) / teeth_mask.size * 100
+
+    if teeth_pct > 8:
+        return False, f"Teeth may be visible ({teeth_pct:.0f}% bright pixels in mouth area). Keep mouth closed with a neutral expression."
+
+    return True, "Mouth closed, neutral expression."

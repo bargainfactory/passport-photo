@@ -19,3 +19,8 @@ Thumbs.db
 *.log
 u2net.onnx
 u2net_human_seg.onnx
+isnet-general-use.onnx
+data/
+.claude/
+web/.next/
+web/node_modules/

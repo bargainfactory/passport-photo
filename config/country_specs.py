@@ -2,12 +2,56 @@
 
 Each entry defines the required photo dimensions, background color,
 head size proportions, and compliance rules per country/document type.
+
+Specifications sourced from official government photo requirements.
+All sizes in millimeters, output at 300 DPI.
 """
 
+# Country flag emoji lookup for UI display
+COUNTRY_FLAGS = {
+    "United States": "🇺🇸",
+    "Canada": "🇨🇦",
+    "United Kingdom": "🇬🇧",
+    "Australia": "🇦🇺",
+    "India": "🇮🇳",
+    "China": "🇨🇳",
+    "Schengen / EU": "🇪🇺",
+    "Japan": "🇯🇵",
+    "Brazil": "🇧🇷",
+    "Russia": "🇷🇺",
+    "South Africa": "🇿🇦",
+    "Mexico": "🇲🇽",
+    "Saudi Arabia": "🇸🇦",
+    "United Arab Emirates": "🇦🇪",
+    "Egypt": "🇪🇬",
+    "Qatar": "🇶🇦",
+    "Jordan": "🇯🇴",
+    "South Korea": "🇰🇷",
+    "Thailand": "🇹🇭",
+    "Philippines": "🇵🇭",
+    "Indonesia": "🇮🇩",
+    "Pakistan": "🇵🇰",
+    "Vietnam": "🇻🇳",
+    "Malaysia": "🇲🇾",
+    "Singapore": "🇸🇬",
+    "Hong Kong": "🇭🇰",
+    "Turkey": "🇹🇷",
+    "Iran": "🇮🇷",
+    "Israel": "🇮🇱",
+    "New Zealand": "🇳🇿",
+    "Germany": "🇩🇪",
+    "France": "🇫🇷",
+    "Nigeria": "🇳🇬",
+    "Kenya": "🇰🇪",
+    "Other / Custom": "🌍",
+}
+
+
 COUNTRY_SPECS = {
+    # ── Americas ──
     "United States": {
         "passport": {
-            "width_mm": 51, "height_mm": 51,
+            "width_mm": 51, "height_mm": 51,  # 2x2 inches
             "bg_color": (255, 255, 255),
             "head_pct": (50, 69),
             "eye_line_pct": (56, 69),
@@ -21,7 +65,7 @@ COUNTRY_SPECS = {
         "glasses": False,
         "headgear": False,
         "expression": "Neutral, eyes open, mouth closed",
-        "notes": "No glasses since 2016. No headgear except religious.",
+        "notes": "No glasses since 2016. No headgear except religious. White background only.",
     },
     "Canada": {
         "passport": {
@@ -39,115 +83,7 @@ COUNTRY_SPECS = {
         "glasses": False,
         "headgear": False,
         "expression": "Neutral, mouth closed, eyes open",
-        "notes": "No glasses. Head 31-36mm in height.",
-    },
-    "United Kingdom": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": False,
-        "headgear": False,
-        "expression": "Neutral, mouth closed, no smile",
-        "notes": "No glasses. Light grey background also accepted.",
-    },
-    "Australia": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (64, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (64, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": False,
-        "headgear": False,
-        "expression": "Neutral, mouth closed",
-        "notes": "No glasses. Plain white or light grey background.",
-    },
-    "India": {
-        "passport": {
-            "width_mm": 51, "height_mm": 51,
-            "bg_color": (255, 255, 255),
-            "head_pct": (50, 70),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 51, "height_mm": 51,
-            "bg_color": (255, 255, 255),
-            "head_pct": (50, 70),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": False,
-        "headgear": False,
-        "expression": "Neutral, eyes open, mouth closed",
-        "notes": "White background only. No glasses.",
-    },
-    "China": {
-        "passport": {
-            "width_mm": 33, "height_mm": 48,
-            "bg_color": (255, 255, 255),
-            "head_pct": (62, 73),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 33, "height_mm": 48,
-            "bg_color": (255, 255, 255),
-            "head_pct": (62, 73),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": False,
-        "headgear": False,
-        "expression": "Neutral, no smile, eyes open",
-        "notes": "White background. Head height 28-33mm. No glasses.",
-    },
-    "Schengen / EU": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, mouth closed",
-        "notes": "Light grey or white background. Glasses allowed if eyes clearly visible.",
-    },
-    "Japan": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 45, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, mouth closed, eyes open",
-        "notes": "White or light background. Glasses ok if no glare.",
+        "notes": "No glasses. Head 31-36mm in height. White or light-colored background.",
     },
     "Brazil": {
         "passport": {
@@ -167,42 +103,6 @@ COUNTRY_SPECS = {
         "expression": "Neutral, mouth closed",
         "notes": "White background. No glasses.",
     },
-    "Russia": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, mouth closed",
-        "notes": "White background preferred. Glasses allowed if clear lenses.",
-    },
-    "South Africa": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (60, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (60, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White or light grey background.",
-    },
     "Mexico": {
         "passport": {
             "width_mm": 35, "height_mm": 45,
@@ -221,79 +121,197 @@ COUNTRY_SPECS = {
         "expression": "Neutral, no smile",
         "notes": "White background. No glasses.",
     },
-    "Saudi Arabia": {
+
+    # ── Europe ──
+    "United Kingdom": {
         "passport": {
-            "width_mm": 40, "height_mm": 60,
+            "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
             "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, mouth closed, no smile",
+        "notes": "No glasses. Light grey background also accepted.",
+    },
+    "Schengen / EU": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, mouth closed",
+        "notes": (
+            "Applies to all Schengen Area countries: Austria, Belgium, Czech Republic, "
+            "Denmark, Estonia, Finland, France, Germany, Greece, Hungary, Iceland, Italy, "
+            "Latvia, Lithuania, Luxembourg, Malta, Netherlands, Norway, Poland, Portugal, "
+            "Slovakia, Slovenia, Spain, Sweden, Switzerland. "
+            "White or light grey background. Glasses allowed if eyes clearly visible."
+        ),
+    },
+    "Germany": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, mouth closed, eyes open",
+        "notes": "White or light grey background. Follows Schengen/EU standard. Glasses allowed if no glare.",
+    },
+    "France": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, mouth closed",
+        "notes": "White or light grey/blue background. Follows Schengen/EU standard. No glasses since 2018.",
+    },
+    "Russia": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, mouth closed",
+        "notes": "White background preferred. Glasses allowed if clear lenses, no tinted.",
+    },
+    "Turkey": {
+        "passport": {
+            "width_mm": 50, "height_mm": 60,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White background. Glasses ok if clear lenses, no glare.",
+    },
+
+    # ── Asia-Pacific ──
+    "Australia": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (64, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (64, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, mouth closed",
+        "notes": "No glasses. Plain white or light grey background.",
+    },
+    "New Zealand": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (66, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (66, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, mouth closed, eyes open",
+        "notes": "No glasses. White or off-white background.",
+    },
+    "India": {
+        "passport": {
+            "width_mm": 51, "height_mm": 51,  # 2x2 inches
+            "bg_color": (255, 255, 255),
+            "head_pct": (50, 70),
             "eye_line_pct": (56, 69),
         },
         "visa": {
             "width_mm": 51, "height_mm": 51,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (50, 70),
             "eye_line_pct": (56, 69),
         },
         "glasses": False,
         "headgear": False,
         "expression": "Neutral, eyes open, mouth closed",
-        "notes": "White or light gray background. No glasses. No headgear except religious.",
+        "notes": "White background only. No glasses. No headgear except religious.",
     },
-    "United Arab Emirates": {
+    "China": {
         "passport": {
-            "width_mm": 40, "height_mm": 60,
+            "width_mm": 33, "height_mm": 48,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (62, 73),
             "eye_line_pct": (56, 69),
         },
         "visa": {
-            "width_mm": 35, "height_mm": 45,
+            "width_mm": 33, "height_mm": 48,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White background. Glasses if eyes clearly visible. Religious headgear allowed.",
-    },
-    "Egypt": {
-        "passport": {
-            "width_mm": 40, "height_mm": 60,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (62, 73),
             "eye_line_pct": (56, 69),
         },
         "glasses": False,
         "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White background. No glasses, no headgear.",
+        "expression": "Neutral, no smile, eyes open",
+        "notes": "White background. Head height 28-33mm. No glasses, no headgear.",
     },
-    "Qatar": {
-        "passport": {
-            "width_mm": 38, "height_mm": 48,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White or light blue background. Glasses ok if clear.",
-    },
-    "Jordan": {
+    "Japan": {
         "passport": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
@@ -301,15 +319,15 @@ COUNTRY_SPECS = {
             "eye_line_pct": (56, 69),
         },
         "visa": {
-            "width_mm": 35, "height_mm": 45,
+            "width_mm": 45, "height_mm": 45,
             "bg_color": (255, 255, 255),
             "head_pct": (70, 80),
             "eye_line_pct": (56, 69),
         },
         "glasses": True,
         "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White background. Glasses if eyes visible.",
+        "expression": "Neutral, mouth closed, eyes open",
+        "notes": "White or light background. Glasses ok if no glare.",
     },
     "South Korea": {
         "passport": {
@@ -345,7 +363,7 @@ COUNTRY_SPECS = {
         "glasses": True,
         "headgear": False,
         "expression": "Neutral, eyes open",
-        "notes": "White or light background. Glasses ok if not reflective.",
+        "notes": "White or light background. Glasses ok if not reflective. Also accepts 2x2\" for some visas.",
     },
     "Philippines": {
         "passport": {
@@ -363,7 +381,7 @@ COUNTRY_SPECS = {
         "glasses": False,
         "headgear": False,
         "expression": "Neutral (slight smile ok, no teeth showing)",
-        "notes": "White or light blue background. Head 32-36mm. No glasses unless medical.",
+        "notes": "White or light blue background. Head 32-36mm. No glasses unless medical. No headgear.",
     },
     "Indonesia": {
         "passport": {
@@ -381,25 +399,7 @@ COUNTRY_SPECS = {
         "glasses": False,
         "headgear": False,
         "expression": "Neutral, eyes open",
-        "notes": "White background. Religious headgear allowed.",
-    },
-    "Pakistan": {
-        "passport": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "visa": {
-            "width_mm": 35, "height_mm": 45,
-            "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
-            "eye_line_pct": (56, 69),
-        },
-        "glasses": True,
-        "headgear": False,
-        "expression": "Neutral, eyes open",
-        "notes": "White background. Glasses if eyes visible. No hats.",
+        "notes": "White background. No glasses. Religious headgear allowed.",
     },
     "Vietnam": {
         "passport": {
@@ -409,7 +409,7 @@ COUNTRY_SPECS = {
             "eye_line_pct": (56, 69),
         },
         "visa": {
-            "width_mm": 51, "height_mm": 51,
+            "width_mm": 51, "height_mm": 51,  # 2x2 inches
             "bg_color": (255, 255, 255),
             "head_pct": (70, 80),
             "eye_line_pct": (56, 69),
@@ -473,9 +473,9 @@ COUNTRY_SPECS = {
         "expression": "Neutral, eyes open",
         "notes": "White background. Head 32-36mm. Religious/medical headgear allowed.",
     },
-    "Turkey": {
+    "Pakistan": {
         "passport": {
-            "width_mm": 50, "height_mm": 60,
+            "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
             "head_pct": (70, 80),
             "eye_line_pct": (56, 69),
@@ -489,7 +489,102 @@ COUNTRY_SPECS = {
         "glasses": True,
         "headgear": False,
         "expression": "Neutral, eyes open",
-        "notes": "White background. Glasses ok if clear lenses.",
+        "notes": "White background. Glasses if eyes visible. No hats.",
+    },
+
+    # ── Middle East ──
+    "Saudi Arabia": {
+        "passport": {
+            "width_mm": 40, "height_mm": 60,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 51, "height_mm": 51,  # 2x2 inches
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, eyes open, mouth closed",
+        "notes": (
+            "White or light gray background. No glasses. "
+            "No headgear except religious. Head 70-80% of frame (~28-48mm)."
+        ),
+    },
+    "United Arab Emirates": {
+        "passport": {
+            "width_mm": 40, "height_mm": 60,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White background. Glasses if eyes clearly visible. Religious/medical headgear allowed.",
+    },
+    "Egypt": {
+        "passport": {
+            "width_mm": 40, "height_mm": 60,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White background. No glasses, no headgear.",
+    },
+    "Qatar": {
+        "passport": {
+            "width_mm": 38, "height_mm": 48,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White or light blue background. Glasses ok if clear.",
+    },
+    "Jordan": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White background. Glasses if eyes visible.",
     },
     "Iran": {
         "passport": {
@@ -525,11 +620,67 @@ COUNTRY_SPECS = {
         "glasses": True,
         "headgear": False,
         "expression": "Neutral, eyes open",
-        "notes": "Light background (white/light grey). Glasses ok.",
+        "notes": "Light background (white or light grey). Glasses ok if no tint or glare.",
+    },
+
+    # ── Africa ──
+    "South Africa": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (60, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (60, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": True,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White or light grey background.",
+    },
+    "Nigeria": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, eyes open, mouth closed",
+        "notes": "White background. No glasses, no headgear except religious.",
+    },
+    "Kenya": {
+        "passport": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "visa": {
+            "width_mm": 35, "height_mm": 45,
+            "bg_color": (255, 255, 255),
+            "head_pct": (70, 80),
+            "eye_line_pct": (56, 69),
+        },
+        "glasses": False,
+        "headgear": False,
+        "expression": "Neutral, eyes open",
+        "notes": "White background. No glasses, no headgear.",
     },
 }
 
-# "Other/Custom" is handled in UI — user enters dimensions manually
+# "Other/Custom" is handled in the UI — user enters dimensions manually
 
 
 def get_country_list():

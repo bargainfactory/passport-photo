@@ -1,33 +1,60 @@
 """Step 1: Photo upload or webcam capture with lighting tips."""
 
 import streamlit as st
-
-
-LIGHTING_TIP = """
-<div class="tip-card">
-<strong>For best results with your selfie:</strong><br>
-Face the light source directly (e.g., a window or soft lamp in front of you) so light
-falls evenly across your face. This minimizes shadows under eyes, nose, chin, or on one
-side. <strong>Avoid side lighting, overhead lights, or direct flash</strong> \u2014 these create
-harsh shadows that often cause rejection. Use natural daylight if possible, and add a
-white reflector (like paper or foam board) opposite the light to fill shadows.
-</div>
-"""
+from config.country_specs import COUNTRY_FLAGS
 
 
 def render():
-    """Render the photo upload step."""
-    st.header("Upload Your Photo")
+    """Render the photo upload step with country context."""
+    if st.button("Back to Country Selection"):
+        st.session_state["step"] = 0
+        st.rerun()
 
-    # Prominent lighting tips
-    st.markdown(LIGHTING_TIP, unsafe_allow_html=True)
+    st.markdown(
+        '<p class="section-label">Step 2 of 4</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("### Upload Your Photo")
 
-    st.markdown("Choose one option below:")
+    # Show selected country context
+    country = st.session_state.get("country", "")
+    doc_type = st.session_state.get("doc_type", "passport")
+    spec = st.session_state.get("spec", {})
+    flag = COUNTRY_FLAGS.get(country, "")
+
+    if country and country != "Other / Custom":
+        w = spec.get("width_mm", "?")
+        h = spec.get("height_mm", "?")
+        st.markdown(
+            f'<div class="country-tag">{flag} {country} &mdash; '
+            f'{doc_type.title()} &mdash; {w}&times;{h}mm</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Lighting tips
+    st.markdown(
+        """<div class="tip-card">
+        <b>Lighting tips for best results:</b><br>
+        Face the light source directly (e.g., a window or soft lamp in front of you)
+        so light falls evenly across your face. This minimizes shadows under eyes, nose,
+        chin, or on one side.
+        <b>Avoid side lighting, overhead lights, or direct flash</b> &mdash; these create
+        harsh shadows that often cause rejection.<br><br>
+        <b>Pro tips:</b> Use natural daylight if possible. Add a white reflector
+        (paper, foam board, or a white towel) opposite the light source to fill shadows.
+        Stand 1&ndash;2 feet in front of a plain wall. Keep your face centered and look
+        straight at the camera.
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Upload options
+    st.write("Choose one option below:")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Upload a File")
+        st.markdown("**Upload a File**")
         uploaded_file = st.file_uploader(
             "Choose a photo (JPG, PNG)",
             type=["jpg", "jpeg", "png"],
@@ -36,14 +63,14 @@ def render():
         )
 
     with col2:
-        st.subheader("Take a Selfie")
+        st.markdown("**Take a Selfie**")
         camera_photo = st.camera_input(
             "Take a photo with your webcam",
             key="camera_input",
             help="Center your face, look straight at the camera.",
         )
 
-    # Process whichever input was provided
+    # Process input
     image_bytes = None
     source = None
 
@@ -58,13 +85,26 @@ def render():
         st.session_state["uploaded_image"] = image_bytes
         st.session_state["image_source"] = source
 
-        # Show a small preview
+        st.markdown("---")
         st.image(image_bytes, caption="Your uploaded photo", width=300)
 
-        if st.button("Continue to Country Selection \u2192", type="primary", use_container_width=True):
-            st.session_state["step"] = 1
+        # Checklist reminder
+        st.markdown(
+            """<div class="spec-box">
+            <b>Before continuing, check:</b><br>
+            &#10003; Face is clearly visible and front-facing<br>
+            &#10003; Even lighting with no harsh shadows<br>
+            &#10003; Neutral expression, eyes open<br>
+            &#10003; No glasses (unless country allows)<br>
+            &#10003; Plain background (we will replace it automatically)
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+        if st.button(
+            "Process Photo",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["step"] = 2
             st.rerun()
-    else:
-        # Clear any previous upload if user removed the file
-        if "uploaded_image" in st.session_state and st.session_state.get("image_source"):
-            pass  # Keep existing upload

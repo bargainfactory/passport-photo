@@ -18,13 +18,23 @@ from config.constants import PHOTO_PRICE_CENTS
 
 def _get_stripe_key():
     """Get the Stripe secret key from environment or Streamlit secrets."""
-    # Try Streamlit secrets first
     try:
         return st.secrets["STRIPE_SECRET_KEY"]
     except (KeyError, FileNotFoundError, AttributeError):
         pass
-    # Fall back to environment variable
     return os.environ.get("STRIPE_SECRET_KEY", "")
+
+
+def _get_publishable_key():
+    """Get the Stripe publishable key for client-side use."""
+    try:
+        return st.secrets["STRIPE_PUBLISHABLE_KEY"]
+    except (KeyError, FileNotFoundError, AttributeError):
+        pass
+    return os.environ.get(
+        "STRIPE_PUBLISHABLE_KEY",
+        "pk_test_51T98wZQKzHV1V3Lwh8CRanvFAIfsHTek2T4A6KIBwRfmhjm75m9z9lj7Z4ToEqrbKJhnR9oJjKJxmGJFwoHUxH4400XTrm02Sb",
+    )
 
 
 def is_stripe_configured():
@@ -33,6 +43,11 @@ def is_stripe_configured():
         return False
     key = _get_stripe_key()
     return bool(key) and key != "sk_test_your_key_here"
+
+
+def get_publishable_key():
+    """Return the Stripe publishable key for frontend display."""
+    return _get_publishable_key()
 
 
 def create_checkout_session(currency="usd", price_cents=None):
@@ -51,8 +66,6 @@ def create_checkout_session(currency="usd", price_cents=None):
     stripe.api_key = _get_stripe_key()
     amount = price_cents or PHOTO_PRICE_CENTS
 
-    # Build success/cancel URLs
-    # In Streamlit, we use query params to detect return from Stripe
     base_url = _get_app_url()
     success_url = f"{base_url}?paid=true&session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{base_url}?cancelled=true"
@@ -66,7 +79,10 @@ def create_checkout_session(currency="usd", price_cents=None):
                     "currency": currency,
                     "product_data": {
                         "name": "Passport/Visa Photo Download",
-                        "description": "Compliant passport or visa photo - digital download",
+                        "description": (
+                            "Compliant passport or visa photo - "
+                            "digital download (JPEG + PNG, 300 DPI)"
+                        ),
                     },
                     "unit_amount": amount,
                 },
@@ -106,19 +122,11 @@ def verify_payment(session_id):
 
 
 def _get_app_url():
-    """Get the current app URL for Stripe redirects.
-
-    In Streamlit Cloud, this is the deployed URL.
-    Locally, defaults to localhost.
-    """
-    # Try to detect from Streamlit config/environment
+    """Get the current app URL for Stripe redirects."""
     try:
-        # Streamlit Cloud sets this
         url = st.secrets.get("APP_URL", "")
         if url:
             return url.rstrip("/")
     except (FileNotFoundError, AttributeError):
         pass
-
-    # Fallback to localhost for development
     return "http://localhost:8501"

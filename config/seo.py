@@ -1,31 +1,27 @@
-"""SEO meta tags, OpenGraph, and JSON-LD schema injection for Streamlit."""
+"""SEO meta tags, OpenGraph, Twitter Card, and JSON-LD schema injection."""
 
 import streamlit as st
 import json
 
 
 def inject_meta_tags():
-    """Inject HTML meta, OpenGraph, Twitter Card, and JSON-LD into the page head."""
+    """Inject HTML meta, OpenGraph, Twitter Card, and JSON-LD into the page."""
 
-    title = "Instant Passport & Visa Photo Maker \u2013 Compliant for 50+ Countries | Free Preview"
+    title = "Instant Passport and Visa Photo Maker - Compliant for 50+ Countries"
     description = (
         "Create perfect digital passport and visa photos online for USA, Saudi Arabia, "
-        "UAE, India, China, EU, and more. Upload selfie, auto-edit, compliant download. "
-        "Pay in your currency."
+        "UAE, India, China, EU, and more. Upload selfie, auto-edit, compliant download."
     )
     keywords = (
         "passport photo online, visa photo editor, biometric passport photo, "
-        "ID photo maker, passport photo app, passport photo generator, visa photo tool, "
-        "passport size photo, online photo editor, digital passport photo, "
-        "passport photo from selfie, visa photo from phone"
+        "ID photo maker, passport photo app, passport photo generator, visa photo tool"
     )
     site_url = "https://passport-photo-editor.streamlit.app"
 
-    # JSON-LD structured data for WebApplication
-    json_ld = {
+    json_ld = json.dumps({
         "@context": "https://schema.org",
         "@type": "WebApplication",
-        "name": "Passport & Visa Photo Editor",
+        "name": "Passport and Visa Photo Editor",
         "description": description,
         "url": site_url,
         "applicationCategory": "PhotographyApplication",
@@ -40,38 +36,21 @@ def inject_meta_tags():
             "AI background removal",
             "Automatic face detection and cropping",
             "Webcam selfie support",
-            "Print-ready 4x6 sheets",
-            "Biometric compliance validation",
+            "Print-ready 4x6 sheets at 300 DPI",
         ],
-        "keywords": keywords,
-    }
+    })
 
-    meta_html = f"""
-    <!-- Primary Meta Tags -->
-    <meta name="title" content="{title}">
-    <meta name="description" content="{description}">
-    <meta name="keywords" content="{keywords}">
-    <meta name="robots" content="index, follow">
-    <meta name="language" content="English">
-    <meta name="author" content="Passport Photo Editor">
-
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="{site_url}">
-    <meta property="og:title" content="{title}">
-    <meta property="og:description" content="{description}">
-    <meta property="og:site_name" content="Passport & Visa Photo Editor">
-
-    <!-- Twitter -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:url" content="{site_url}">
-    <meta name="twitter:title" content="{title}">
-    <meta name="twitter:description" content="{description}">
-
-    <!-- JSON-LD Structured Data -->
-    <script type="application/ld+json">
-    {json.dumps(json_ld, indent=2)}
-    </script>
-    """
+    meta_html = (
+        f'<meta name="description" content="{description}">'
+        f'<meta name="keywords" content="{keywords}">'
+        f'<meta name="robots" content="index, follow">'
+        f'<meta property="og:type" content="website">'
+        f'<meta property="og:title" content="{title}">'
+        f'<meta property="og:description" content="{description}">'
+        f'<meta name="twitter:card" content="summary">'
+        f'<meta name="twitter:title" content="{title}">'
+        f'<meta name="twitter:description" content="{description}">'
+        f'<script type="application/ld+json">{json_ld}</script>'
+    )
 
     st.markdown(meta_html, unsafe_allow_html=True)

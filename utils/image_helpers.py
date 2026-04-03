@@ -34,11 +34,10 @@ def pil_to_bytes(pil_image, fmt="JPEG", quality=95, dpi=DEFAULT_DPI):
     buf = io.BytesIO()
     save_kwargs = {"dpi": (dpi, dpi)}
     if fmt.upper() == "JPEG":
-        # Ensure RGB for JPEG (no alpha)
         if pil_image.mode == "RGBA":
             pil_image = pil_image.convert("RGB")
         save_kwargs["quality"] = quality
-        save_kwargs["subsampling"] = 0  # Best quality
+        save_kwargs["subsampling"] = 0
     pil_image.save(buf, format=fmt, **save_kwargs)
     return buf.getvalue()
 
@@ -55,8 +54,11 @@ def pil_to_cv2(pil_image):
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
-def add_watermark(pil_image, text="PREVIEW", opacity=80):
+def add_watermark(pil_image, text="PREVIEW", opacity=70):
     """Add a diagonal watermark text overlay to a PIL Image.
+
+    Creates a properly rotated diagonal watermark that tiles across the image
+    for a professional preview appearance.
 
     Args:
         pil_image: PIL Image (RGB)
@@ -66,34 +68,60 @@ def add_watermark(pil_image, text="PREVIEW", opacity=80):
     Returns:
         New PIL Image with watermark applied
     """
-    watermarked = pil_image.copy().convert("RGBA")
-    overlay = Image.new("RGBA", watermarked.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+    img_w, img_h = pil_image.size
 
-    # Calculate font size relative to image
-    font_size = max(20, min(watermarked.width, watermarked.height) // 6)
+    # Create a large transparent overlay for the rotated text
+    # Make it bigger than the image so rotation doesn't clip
+    diag = int((img_w**2 + img_h**2) ** 0.5) + 100
+    txt_layer = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(txt_layer)
+
+    # Calculate font size relative to image (roughly 1/8th of shorter dimension)
+    font_size = max(24, min(img_w, img_h) // 8)
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except (OSError, IOError):
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
 
-    # Get text bounding box
+    # Get text size
     bbox = draw.textbbox((0, 0), text, font=font)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    # Center the text
-    x = (watermarked.width - text_w) // 2
-    y = (watermarked.height - text_h) // 2
+    # Tile the watermark text across the overlay in a grid pattern
+    spacing_x = text_w + font_size * 2
+    spacing_y = text_h + font_size * 3
 
-    # Draw with semi-transparent red
-    draw.text((x, y), text, fill=(255, 0, 0, opacity), font=font)
+    y = 0
+    row = 0
+    while y < diag:
+        x = -spacing_x // 2 if row % 2 else 0  # offset alternate rows
+        while x < diag:
+            # Primary text (semi-transparent red)
+            draw.text(
+                (x, y),
+                text,
+                fill=(220, 40, 40, opacity),
+                font=font,
+            )
+            x += spacing_x
+        y += spacing_y
+        row += 1
 
-    # Also draw a second line rotated effect by drawing at angle offset
-    x2 = x - text_w // 4
-    y2 = y + text_h + font_size
-    if y2 < watermarked.height:
-        draw.text((x2, y2), text, fill=(255, 0, 0, opacity // 2), font=font)
+    # Rotate the text layer -35 degrees
+    txt_layer = txt_layer.rotate(35, resample=Image.BICUBIC, expand=False)
 
-    watermarked = Image.alpha_composite(watermarked, overlay)
+    # Crop to original image size from center
+    cx = txt_layer.width // 2
+    cy = txt_layer.height // 2
+    left = cx - img_w // 2
+    top = cy - img_h // 2
+    txt_cropped = txt_layer.crop((left, top, left + img_w, top + img_h))
+
+    # Composite onto the image
+    watermarked = pil_image.copy().convert("RGBA")
+    watermarked = Image.alpha_composite(watermarked, txt_cropped)
     return watermarked.convert("RGB")

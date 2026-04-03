@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Premium Design Tokens ===== */
+:root {
+  --navy: #0A2540;
+  --teal: #00D4FF;
+  --teal-muted: #00B4D8;
+  --surface: #FFFFFF;
+  --surface-raised: #F8FAFF;
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+}
+
+/* ===== Base ===== */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: linear-gradient(180deg, #F8FAFF 0%, #EFF6FF 30%, #F8FAFF 100%);
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(0, 212, 255, 0.2);
+  color: #0A2540;
+}
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ===== Glassmorphism Utility ===== */
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  .glass-dark {
+    background: rgba(10, 37, 64, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #0A2540 0%, #00D4FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gradient-text-light {
+    background: linear-gradient(135deg, #FFFFFF 0%, #00D4FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .border-glow {
+    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.1),
+                0 0 20px rgba(0, 212, 255, 0.05);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* ===== Shimmer Loading Effect ===== */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 212, 255, 0.03) 0%,
+    rgba(0, 212, 255, 0.08) 50%,
+    rgba(0, 212, 255, 0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+/* ===== Processing Pulse Ring ===== */
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #00D4FF;
+  animation: pulseRing 1.5s ease-out infinite;
+}
+
+/* ===== Animated Hero Gradient ===== */
+.hero-gradient {
+  background: linear-gradient(135deg, #0A2540 0%, #0F3460 40%, #0A2540 70%, #061526 100%);
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+}
+
+/* ===== Upload Drop Zone ===== */
+.drop-zone-active {
+  border-color: #00D4FF !important;
+  background: rgba(0, 212, 255, 0.04) !important;
+  box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.1);
+}
+
+/* ===== Smooth Step Transition ===== */
+.step-enter {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.step-enter-active {
+  opacity: 1;
+  transform: translateX(0);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
