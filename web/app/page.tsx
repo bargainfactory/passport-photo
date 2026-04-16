@@ -6,18 +6,24 @@ import Header from "@/components/header";
 import Stepper from "@/components/stepper";
 import StepCountry from "@/components/step-country";
 import StepUpload from "@/components/step-upload";
-import StepPreview from "@/components/step-preview";
+import StepPreview, { type ProcessedBundle } from "@/components/step-preview";
 import StepDownload from "@/components/step-download";
 import Footer from "@/components/footer";
 import { type CountrySpec } from "@/lib/countries";
+import { type Edits, type Variant, DEFAULT_EDITS } from "@/components/photo-editor";
 
 export default function Home() {
   const [step, setStep] = useState(0);
   const [country, setCountry] = useState<CountrySpec | null>(null);
   const [docType, setDocType] = useState<"passport" | "visa">("passport");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [processedUrl, setProcessedUrl] = useState<string | null>(null);
-  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<ProcessedBundle | null>(null);
+  const [variant, setVariant] = useState<Variant>("enhanced");
+  const [edits, setEdits] = useState<Edits>(DEFAULT_EDITS);
+  // Advanced-tools override: when the user applies magnify/erase/fill
+  // edits, we stash the resulting data URL here and prefer it over the
+  // bundle's original URL for both on-screen display and download.
+  const [editedOverrideUrl, setEditedOverrideUrl] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -56,22 +62,32 @@ export default function Home() {
               country={country}
               docType={docType}
               imageUrl={imageUrl}
-              onNext={(pUrl, sUrl) => {
-                setProcessedUrl(pUrl);
-                setSheetUrl(sUrl);
+              variant={variant}
+              onVariantChange={setVariant}
+              edits={edits}
+              onEditsChange={setEdits}
+              editedOverrideUrl={editedOverrideUrl}
+              onEditedOverrideChange={setEditedOverrideUrl}
+              onNext={(b) => {
+                setBundle(b);
                 setStep(3);
               }}
               onBack={() => setStep(1)}
             />
           )}
 
-          {step === 3 && country && processedUrl && sheetUrl && (
+          {step === 3 && country && bundle && (
             <StepDownload
               key="download"
               country={country}
               docType={docType}
-              processedUrl={processedUrl}
-              sheetUrl={sheetUrl}
+              bundle={bundle}
+              variant={variant}
+              onVariantChange={setVariant}
+              edits={edits}
+              onEditsChange={setEdits}
+              editedOverrideUrl={editedOverrideUrl}
+              onEditedOverrideChange={setEditedOverrideUrl}
               onBack={() => setStep(2)}
             />
           )}

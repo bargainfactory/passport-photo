@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
-  Upload, Camera, Lightbulb, ArrowLeft, ArrowRight, X,
+  Upload, Camera, Lightbulb, ArrowLeft, ArrowRight, X, RotateCcw, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
@@ -18,6 +18,7 @@ interface Props {
 
 export default function StepUpload({ country, docType, onNext, onBack }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageSource, setImageSource] = useState<"file" | "webcam" | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showWebcam, setShowWebcam] = useState(false);
   const [webcamReady, setWebcamReady] = useState(false);
@@ -34,6 +35,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
       const dataUrl = e.target?.result as string;
       const img = new Image();
       img.onload = () => {
+        setImageSource("file");
         const MAX_DIM = 2000;
         if (img.width <= MAX_DIM && img.height <= MAX_DIM) {
           setImageUrl(dataUrl);
@@ -81,9 +83,12 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
-    const canvas = document.createElement("canvas");
     const vw = videoRef.current.videoWidth;
     const vh = videoRef.current.videoHeight;
+    // Guard against capturing before the camera has delivered a frame —
+    // would otherwise produce a 0x0 / blank data URL.
+    if (!vw || !vh) return;
+    const canvas = document.createElement("canvas");
     canvas.width = vw;
     canvas.height = vh;
     const ctx = canvas.getContext("2d");
@@ -93,6 +98,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
     ctx.scale(-1, 1);
     ctx.drawImage(videoRef.current, 0, 0);
     setImageUrl(canvas.toDataURL("image/jpeg", 0.95));
+    setImageSource("webcam");
     stopWebcam();
   };
 
@@ -103,7 +109,16 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
     setWebcamReady(false);
   };
 
-  const removeImage = () => setImageUrl(null);
+  const removeImage = () => {
+    setImageUrl(null);
+    setImageSource(null);
+  };
+
+  const retakeSelfie = () => {
+    setImageUrl(null);
+    setImageSource(null);
+    startWebcam();
+  };
 
   return (
     <motion.div
@@ -126,17 +141,33 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
         {spec.width_mm}&times;{spec.height_mm}mm
       </div>
 
-      {/* Tip card */}
-      <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 p-4 mb-6">
-        <div className="flex gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 flex-shrink-0">
-            <Lightbulb className="h-4 w-4 text-amber-600" />
+      {/* Tip cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 p-4">
+          <div className="flex gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 flex-shrink-0">
+              <Lightbulb className="h-4 w-4 text-amber-600" />
+            </div>
+            <div className="text-sm text-amber-900 leading-relaxed">
+              <strong>Lighting tip:</strong> Face a window or soft lamp directly
+              so light falls evenly across your face. Avoid side lighting,
+              overhead lights, or direct flash &mdash; these create harsh
+              shadows that often cause rejection.
+            </div>
           </div>
-          <div className="text-sm text-amber-900 leading-relaxed">
-            <strong>Lighting tip:</strong> Face a window or soft lamp directly so
-            light falls evenly across your face. Avoid side lighting, overhead
-            lights, or direct flash &mdash; these create harsh shadows that often
-            cause rejection.
+        </div>
+        <div className="rounded-xl bg-gradient-to-r from-sky-50 to-cyan-50 border border-sky-200/60 p-4">
+          <div className="flex gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 flex-shrink-0">
+              <Square className="h-4 w-4 text-sky-600" />
+            </div>
+            <div className="text-sm text-sky-900 leading-relaxed">
+              <strong>Background tip:</strong> Stand in front of a plain,
+              single-color wall (white, cream, or light gray works best).
+              A uniform background helps our AI cleanly separate you from the
+              scene &mdash; cluttered or patterned backdrops can leave stray
+              artifacts.
+            </div>
           </div>
         </div>
       </div>
@@ -179,14 +210,26 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
             ))}
           </div>
 
-          <motion.button
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => onNext(imageUrl)}
-            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-navy-600 to-navy-500 px-8 py-3 text-sm font-bold text-white shadow-lg hover:shadow-xl transition-shadow"
-          >
-            Process Photo <ArrowRight className="h-4 w-4" />
-          </motion.button>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            {imageSource === "webcam" && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={retakeSelfie}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <RotateCcw className="h-4 w-4" /> Retake
+              </motion.button>
+            )}
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => onNext(imageUrl)}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-navy-600 to-navy-500 px-8 py-3 text-sm font-bold text-white shadow-lg hover:shadow-xl transition-shadow"
+            >
+              Process Photo <ArrowRight className="h-4 w-4" />
+            </motion.button>
+          </div>
         </div>
       ) : showWebcam ? (
         /* Webcam with face guide overlay */
@@ -219,12 +262,17 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
           {/* Capture controls */}
           <div className="flex items-center justify-center gap-4 mt-5">
             <motion.button
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.92 }}
+              whileHover={webcamReady ? { scale: 1.08 } : undefined}
+              whileTap={webcamReady ? { scale: 0.92 } : undefined}
               onClick={capturePhoto}
-              className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-400 text-white shadow-glow-teal"
+              disabled={!webcamReady}
+              className={cn(
+                "relative flex h-16 w-16 items-center justify-center rounded-full text-white shadow-glow-teal transition-opacity",
+                webcamReady
+                  ? "bg-gradient-to-br from-teal-500 to-cyan-400"
+                  : "bg-slate-300 cursor-not-allowed opacity-60",
+              )}
             >
-              {/* Outer ring */}
               <div className="absolute inset-[-3px] rounded-full border-[3px] border-white/30" />
               <Camera className="h-6 w-6" />
             </motion.button>

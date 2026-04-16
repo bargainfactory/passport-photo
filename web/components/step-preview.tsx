@@ -4,16 +4,40 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, ArrowRight, ScanFace, Palette, Crop, ShieldCheck,
-  Check, X, Loader2, AlertTriangle, RefreshCw, Sun, Sparkles, Eye,
+  Check, X, Loader2, AlertTriangle, RefreshCw, Sun, Sparkles, Eye, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
+import PhotoEditor, {
+  type Edits,
+  type Variant,
+  editsToCssFilter,
+} from "@/components/photo-editor";
+
+export interface ProcessedBundle {
+  // Enhanced variant
+  processedUrl: string;
+  sheetUrl: string;
+  previewUrl: string;
+  previewSheetUrl: string;
+  // Original (unenhanced) variant
+  originalProcessedUrl: string;
+  originalSheetUrl: string;
+  originalPreviewUrl: string;
+  originalPreviewSheetUrl: string;
+}
 
 interface Props {
   country: CountrySpec;
   docType: "passport" | "visa";
   imageUrl: string;
-  onNext: (processedUrl: string, sheetUrl: string) => void;
+  variant: Variant;
+  onVariantChange: (v: Variant) => void;
+  edits: Edits;
+  onEditsChange: (e: Edits) => void;
+  editedOverrideUrl: string | null;
+  onEditedOverrideChange: (url: string | null) => void;
+  onNext: (bundle: ProcessedBundle) => void;
   onBack: () => void;
 }
 
@@ -35,12 +59,16 @@ const STAGES = [
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export default function StepPreview({ country, docType, imageUrl, onNext, onBack }: Props) {
+export default function StepPreview({
+  country, docType, imageUrl,
+  variant, onVariantChange, edits, onEditsChange,
+  editedOverrideUrl, onEditedOverrideChange,
+  onNext, onBack,
+}: Props) {
   const [stage, setStage] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [processedUrl, setProcessedUrl] = useState<string | null>(null);
-  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<ProcessedBundle | null>(null);
   const [checks, setChecks] = useState<ValidationCheck[]>([]);
   const spec = getSpec(country, docType);
 
@@ -48,9 +76,9 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
     setStage(0);
     setDone(false);
     setError(null);
-    setProcessedUrl(null);
-    setSheetUrl(null);
+    setBundle(null);
     setChecks([]);
+    onEditedOverrideChange(null);
 
     // Animate stages while the API call runs
     const stageTimers: ReturnType<typeof setTimeout>[] = [];
@@ -107,8 +135,22 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
         throw new Error("Server returned incomplete data");
       }
 
-      setProcessedUrl(data.processed_b64);
-      setSheetUrl(data.sheet_b64);
+      // preview_* are rendered at 600 DPI for crisp on-screen display;
+      // processed_* are the 350-DPI print-ready downloads. original_*
+      // variants carry the unenhanced versions. Fall back to the
+      // enhanced versions if an older backend doesn't send originals.
+      setBundle({
+        processedUrl: data.processed_b64,
+        sheetUrl: data.sheet_b64,
+        previewUrl: data.preview_b64 || data.processed_b64,
+        previewSheetUrl: data.preview_sheet_b64 || data.sheet_b64,
+        originalProcessedUrl: data.original_processed_b64 || data.processed_b64,
+        originalSheetUrl: data.original_sheet_b64 || data.sheet_b64,
+        originalPreviewUrl:
+          data.original_preview_b64 || data.preview_b64 || data.processed_b64,
+        originalPreviewSheetUrl:
+          data.original_preview_sheet_b64 || data.preview_sheet_b64 || data.sheet_b64,
+      });
       setChecks(Array.isArray(data.validation) ? data.validation : []);
       setStage(STAGES.length);
 
@@ -127,7 +169,7 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
       }
       setError(msg);
     }
-  }, [imageUrl, spec]);
+  }, [imageUrl, spec, onEditedOverrideChange]);
 
   useEffect(() => {
     runProcessing();
@@ -302,21 +344,29 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
               <div className="rounded-xl p-4 shadow-glass border-2 border-teal-200 bg-gradient-to-br from-white to-teal-50/30">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-bold text-teal-700 uppercase tracking-wider">
-                    AI Enhanced
+                    {variant === "enhanced" ? "AI Enhanced" : "Original"}
                   </p>
                   <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
                     <Sparkles className="h-3 w-3" /> Studio Quality
                   </span>
                 </div>
                 <div className="rounded-lg overflow-hidden bg-white flex items-center justify-center" style={{ minHeight: "12rem" }}>
-                  {processedUrl ? (
-                    <img src={processedUrl} alt="Processed" className="rounded-lg w-full object-contain max-h-72" />
+                  {bundle ? (
+                    <img
+                      src={
+                        editedOverrideUrl ??
+                        (variant === "enhanced" ? bundle.previewUrl : bundle.originalPreviewUrl)
+                      }
+                      alt="Processed"
+                      className="rounded-lg w-full object-contain max-h-72"
+                      style={{ filter: editsToCssFilter(edits) }}
+                    />
                   ) : (
                     <div className="text-slate-300 text-sm">Processing&hellip;</div>
                   )}
                 </div>
                 <p className="text-xs text-slate-400 mt-2 text-center">
-                  {spec.width_mm}&times;{spec.height_mm}mm &middot; {spec.bg_color[0] === 255 && spec.bg_color[1] === 255 && spec.bg_color[2] === 255 ? "White" : "Light grey"} BG &middot; 300 DPI
+                  {spec.width_mm}&times;{spec.height_mm}mm &middot; {spec.bg_color[0] === 255 && spec.bg_color[1] === 255 && spec.bg_color[2] === 255 ? "White" : "Light grey"} BG &middot; 350 DPI print
                 </p>
               </div>
             </div>
@@ -340,44 +390,75 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
               ))}
             </div>
 
-            {/* Compliance checks */}
-            {checks.length > 0 && (
-              <div className="glass rounded-xl p-5 shadow-glass mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-navy-600 flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-teal-500" />
-                    Compliance Checks
-                  </h3>
-                  <span className={cn(
-                    "text-xs font-bold rounded-full px-2.5 py-0.5",
-                    allPassed
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-amber-100 text-amber-700"
-                  )}>
-                    {passedCount}/{checks.length} passed
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-                  {checks.map((c, i) => (
-                    <motion.div
-                      key={c.check || i}
-                      initial={{ opacity: 0, x: -5 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.06 }}
-                      className="flex items-start gap-2 py-1"
-                    >
-                      {c.passed ? (
-                        <Check className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
-                      ) : (
-                        <X className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-                      )}
-                      <div>
-                        <span className="text-sm font-semibold text-navy-600">{c.check}</span>
-                        <p className="text-xs text-slate-500">{c.message}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
+            {/* Compliance checks + Customize (side-by-side on lg+) */}
+            {(checks.length > 0 || bundle) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+                {checks.length > 0 && (
+                  <div className="glass rounded-xl p-5 shadow-glass">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-bold text-navy-600 flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-teal-500" />
+                        Compliance Checks
+                      </h3>
+                      <span className={cn(
+                        "text-xs font-bold rounded-full px-2.5 py-0.5",
+                        allPassed
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"
+                      )}>
+                        {passedCount}/{checks.length} passed
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                      {checks.map((c, i) => (
+                        <motion.div
+                          key={c.check || i}
+                          initial={{ opacity: 0, x: -5 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.06 }}
+                          className="flex items-start gap-2 py-1"
+                        >
+                          {c.passed ? (
+                            <Check className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          ) : (
+                            <X className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                          )}
+                          <div>
+                            <span className="text-sm font-semibold text-navy-600">{c.check}</span>
+                            <p className="text-xs text-slate-500">{c.message}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {bundle && (
+                  <div className="glass rounded-xl p-5 shadow-glass">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-teal-500" />
+                      <h3 className="text-sm font-bold text-navy-600">
+                        Customize your photo
+                      </h3>
+                    </div>
+                    <PhotoEditor
+                      variant={variant}
+                      onVariantChange={onVariantChange}
+                      edits={edits}
+                      onEditsChange={onEditsChange}
+                      previewUrl={
+                        editedOverrideUrl ??
+                        (variant === "enhanced"
+                          ? bundle.previewUrl
+                          : bundle.originalPreviewUrl)
+                      }
+                      advancedSrcUrl={bundle.previewUrl}
+                      bgColor={spec.bg_color as [number, number, number]}
+                      onAdvancedApply={(url) => onEditedOverrideChange(url)}
+                      compact
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -403,20 +484,31 @@ export default function StepPreview({ country, docType, imageUrl, onNext, onBack
               Your photo is processed securely on our servers and never stored.
             </p>
 
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => processedUrl && sheetUrl && onNext(processedUrl, sheetUrl)}
-              disabled={!processedUrl || !sheetUrl}
-              className={cn(
-                "w-full sm:w-auto mx-auto flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold shadow-lg transition-shadow",
-                processedUrl && sheetUrl
-                  ? "bg-gradient-to-r from-navy-600 to-navy-500 text-white hover:shadow-xl"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
-              )}
-            >
-              Continue to Download <ArrowRight className="h-4 w-4" />
-            </motion.button>
+            <div className="flex flex-col items-center gap-3">
+              <motion.button
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => bundle && onNext(bundle)}
+                disabled={!bundle}
+                className={cn(
+                  "w-full sm:w-auto flex items-center justify-center gap-2 rounded-lg px-8 py-3 text-sm font-bold shadow-lg transition-shadow",
+                  bundle
+                    ? "bg-gradient-to-r from-navy-600 to-navy-500 text-white hover:shadow-xl"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                )}
+              >
+                Continue to Download <ArrowRight className="h-4 w-4" />
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onBack}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <RotateCcw className="h-4 w-4" /> Retake Photo
+              </motion.button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

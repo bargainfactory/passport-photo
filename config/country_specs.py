@@ -53,13 +53,15 @@ COUNTRY_SPECS = {
         "passport": {
             "width_mm": 51, "height_mm": 51,  # 2x2 inches
             "bg_color": (255, 255, 255),
-            "head_pct": (50, 69),
+            # Head height locked to 1.4" (70% of the 2" frame) so the
+            # shoulders naturally fill the 2" width on average builds.
+            "head_pct": (70, 70),
             "eye_line_pct": (56, 69),
         },
         "visa": {
             "width_mm": 51, "height_mm": 51,
             "bg_color": (255, 255, 255),
-            "head_pct": (50, 69),
+            "head_pct": (70, 70),
             "eye_line_pct": (56, 69),
         },
         "glasses": False,

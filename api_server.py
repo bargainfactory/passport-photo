@@ -14,14 +14,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import stripe
+from PIL import Image
 
 from processing.face_detection import detect_face, detect_eyes, compute_face_metrics
 from processing.background import remove_background, replace_background
-from processing.crop_resize import crop_and_center
+from processing.crop_resize import crop_and_center, mm_to_px
 from processing.validation import validate_photo
 from processing.print_sheet import create_print_sheet
 from processing.enhance import full_enhance_pipeline
 from processing.straighten import straighten_image
+from processing.inpaint import inpaint_region
+from config.constants import PREVIEW_DPI, DOWNLOAD_DPI
 from utils.image_helpers import bytes_to_cv2, cv2_to_pil, pil_to_cv2, pil_to_bytes
 
 app = FastAPI(title="PhotoPass Processing API")
@@ -63,10 +66,25 @@ class ProcessRequest(BaseModel):
 
 
 class ProcessResponse(BaseModel):
-    """Response with processed images and validation results."""
-    processed_b64: str  # base64 JPEG of single cropped photo
-    sheet_b64: str  # base64 JPEG of 2x2 print sheet
-    validation: list[dict]  # [{check, passed, message}, ...]
+    """Response with processed images and validation results.
+
+    Two variants are returned so the user can choose:
+      - *_enhanced_*: full AI enhancement pipeline applied
+      - *_original_*: background replaced + cropped to spec, no enhancement
+    Each is available at PREVIEW_DPI (crisp on-screen) and DOWNLOAD_DPI
+    (print-ready download).
+    """
+    # Enhanced variants
+    preview_b64: str         # enhanced @ PREVIEW_DPI (display)
+    preview_sheet_b64: str   # enhanced sheet @ PREVIEW_DPI
+    processed_b64: str       # enhanced @ DOWNLOAD_DPI (print)
+    sheet_b64: str           # enhanced sheet @ DOWNLOAD_DPI
+    # Original (unenhanced) variants
+    original_preview_b64: str
+    original_preview_sheet_b64: str
+    original_processed_b64: str
+    original_sheet_b64: str
+    validation: list[dict]
 
 
 def _decode_image(image_b64: str) -> bytes:
@@ -145,46 +163,79 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
             if face_rect is None:
                 raise HTTPException(422, "Face lost after straightening. Try a clearer photo.")
 
-    # --- Step 3: Lighting correction ---
-    corrected = full_enhance_pipeline(straightened, face_rect)
+    # --- Step 3: Background removal on the straightened image ---
+    straightened_pil = cv2_to_pil(straightened)
+    straightened_bytes = pil_to_bytes(straightened_pil, fmt="PNG")
+    rgba_image = remove_background(straightened_bytes)
 
-    # --- Step 4: Validation (on corrected image) ---
-    eyes = detect_eyes(corrected, face_rect)
-    face_metrics = compute_face_metrics(face_rect, corrected.shape, eyes)
-    validation_results = validate_photo(corrected, face_rect, face_metrics, spec)
-
-    # --- Step 5: Background removal ---
-    # Encode corrected image to bytes for rembg
-    corrected_pil = cv2_to_pil(corrected)
-    corrected_bytes = pil_to_bytes(corrected_pil, fmt="PNG")
-    rgba_image = remove_background(corrected_bytes)
-
-    # --- Step 6: Replace background with spec color ---
+    # --- Step 4: Enhancement is applied to the SUBJECT pixels only,
+    # BEFORE compositing onto the background color. Enhancing after
+    # compositing would let white-balance / warmth shifts tint the
+    # otherwise-pure bg_color (the classic "yellow halo" artifact). ---
     bg_color = tuple(req.bg_color)
-    rgb_image = replace_background(rgba_image, bg_color)
 
-    # --- Step 7: Re-detect face on final composite for accurate crop ---
-    rgb_bgr = pil_to_cv2(rgb_image)
-    new_face = detect_face(rgb_bgr)
+    # Original variant: composite raw matte onto bg_color
+    original_rgb = replace_background(rgba_image, bg_color)
+
+    # Enhanced variant: enhance the straightened BGR (full frame, so
+    # face-aware regions still have context), then re-attach the
+    # matte's alpha channel and composite onto bg_color.
+    enhanced_full_bgr = full_enhance_pipeline(straightened, face_rect)
+    enhanced_full_rgb = cv2_to_pil(enhanced_full_bgr).convert("RGBA")
+    rgba_enhanced = Image.merge(
+        "RGBA",
+        (*enhanced_full_rgb.split()[:3], rgba_image.split()[3]),
+    )
+    enhanced_rgb = replace_background(rgba_enhanced, bg_color)
+    enhanced_bgr = pil_to_cv2(enhanced_rgb)  # for validation
+
+    # --- Step 6: Validation — run on enhanced version ---
+    eyes = detect_eyes(enhanced_bgr, face_rect)
+    face_metrics = compute_face_metrics(face_rect, enhanced_bgr.shape, eyes)
+    validation_results = validate_photo(enhanced_bgr, face_rect, face_metrics, spec)
+
+    # --- Step 7: Re-detect face on composite for accurate crop ---
+    original_rgb_bgr = pil_to_cv2(original_rgb)
+    new_face = detect_face(original_rgb_bgr)
     if new_face is not None:
-        new_eyes = detect_eyes(rgb_bgr, new_face)
-        new_metrics = compute_face_metrics(new_face, rgb_bgr.shape, new_eyes)
+        new_eyes = detect_eyes(original_rgb_bgr, new_face)
+        new_metrics = compute_face_metrics(new_face, original_rgb_bgr.shape, new_eyes)
     else:
         new_metrics = face_metrics
 
-    # --- Step 8: Crop and center to spec ---
-    processed = crop_and_center(rgb_image, new_metrics, spec)
+    # --- Step 8: Crop both variants to the same spec (600 DPI preview,
+    # then downsample to 350 DPI for download) ---
+    download_w = mm_to_px(spec["width_mm"], DOWNLOAD_DPI)
+    download_h = mm_to_px(spec["height_mm"], DOWNLOAD_DPI)
 
-    # --- Step 9: Generate print sheet ---
-    sheet = create_print_sheet(processed, layout="2x2")
+    enh_preview = crop_and_center(enhanced_rgb, new_metrics, spec, dpi=PREVIEW_DPI)
+    enh_processed = enh_preview.resize((download_w, download_h), Image.LANCZOS)
+    enh_processed.info["dpi"] = (DOWNLOAD_DPI, DOWNLOAD_DPI)
 
-    # Encode results
-    processed_bytes = pil_to_bytes(processed, fmt="JPEG", quality=95)
-    sheet_bytes = pil_to_bytes(sheet, fmt="JPEG", quality=95)
+    orig_preview = crop_and_center(original_rgb, new_metrics, spec, dpi=PREVIEW_DPI)
+    orig_processed = orig_preview.resize((download_w, download_h), Image.LANCZOS)
+    orig_processed.info["dpi"] = (DOWNLOAD_DPI, DOWNLOAD_DPI)
+
+    # --- Step 9: Print sheets for both variants at both DPIs ---
+    enh_preview_sheet = create_print_sheet(enh_preview, layout="3x2", dpi=PREVIEW_DPI)
+    enh_sheet = create_print_sheet(enh_processed, layout="3x2", dpi=DOWNLOAD_DPI)
+    orig_preview_sheet = create_print_sheet(orig_preview, layout="3x2", dpi=PREVIEW_DPI)
+    orig_sheet = create_print_sheet(orig_processed, layout="3x2", dpi=DOWNLOAD_DPI)
+
+    def _b64(pil_img, quality=95):
+        return "data:image/jpeg;base64," + base64.b64encode(
+            pil_to_bytes(pil_img, fmt="JPEG", quality=quality)
+        ).decode()
 
     return ProcessResponse(
-        processed_b64="data:image/jpeg;base64," + base64.b64encode(processed_bytes).decode(),
-        sheet_b64="data:image/jpeg;base64," + base64.b64encode(sheet_bytes).decode(),
+        preview_b64=_b64(enh_preview),
+        preview_sheet_b64=_b64(enh_preview_sheet, quality=92),
+        processed_b64=_b64(enh_processed),
+        sheet_b64=_b64(enh_sheet),
+        original_preview_b64=_b64(orig_preview),
+        original_preview_sheet_b64=_b64(orig_preview_sheet, quality=92),
+        original_processed_b64=_b64(orig_processed),
+        original_sheet_b64=_b64(orig_sheet),
         validation=[
             {"check": str(v["check"]), "passed": bool(v["passed"]), "message": str(v["message"])}
             for v in validation_results
@@ -296,6 +347,48 @@ def submit_suggestion(req: SuggestionRequest):
     )
 
     return {"ok": True, "count": len(suggestions)}
+
+
+class InpaintRequest(BaseModel):
+    """Request body for content-aware fill."""
+    image_b64: str  # data URL of the image to edit
+    mask_b64: str   # data URL of the mask (white = fill, black = keep)
+    radius: int = 5
+
+
+class InpaintResponse(BaseModel):
+    image_b64: str
+
+
+@app.post("/api/inpaint", response_model=InpaintResponse)
+def api_inpaint(req: InpaintRequest):
+    """Content-aware fill the masked region of an image."""
+    try:
+        image_bytes = _decode_image(req.image_b64)
+        mask_bytes = _decode_image(req.mask_b64)
+    except Exception:
+        raise HTTPException(400, "Invalid image or mask data")
+
+    image_bgr = bytes_to_cv2(image_bytes)
+    if image_bgr is None:
+        raise HTTPException(400, "Could not decode image")
+
+    import numpy as np
+    mask_arr = np.frombuffer(mask_bytes, np.uint8)
+    mask_bgr = __import__("cv2").imdecode(mask_arr, __import__("cv2").IMREAD_GRAYSCALE)
+    if mask_bgr is None:
+        raise HTTPException(400, "Could not decode mask")
+
+    try:
+        result_bgr = inpaint_region(image_bgr, mask_bgr, radius=max(1, min(20, req.radius)))
+    except Exception as e:
+        raise HTTPException(500, f"Inpaint failed: {e}")
+
+    result_pil = cv2_to_pil(result_bgr)
+    buf = io.BytesIO()
+    result_pil.save(buf, format="JPEG", quality=95)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return InpaintResponse(image_b64="data:image/jpeg;base64," + b64)
 
 
 @app.get("/api/health")

@@ -30,12 +30,17 @@ def correct_lighting(bgr_image, face_rect=None):
     lab = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
 
-    # CLAHE with moderate clip to avoid over-enhancement
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    # Gentle CLAHE: lower clip limit avoids over-enhancement and keeps
+    # skin-tone gradients natural. Higher tile grid = finer local adapt
+    # without posterizing the skin.
+    clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8, 8))
     l_corrected = clahe.apply(l)
 
-    # Blend 65% corrected with 35% original for natural look
-    l_blended = cv2.addWeighted(l_corrected, 0.65, l, 0.35, 0)
+    # 25% corrected / 75% original — CLAHE lifts midtones which, combined
+    # with downstream contrast + sharpen, was producing an over-exposed
+    # look. This ratio corrects uneven lighting without raising the
+    # overall brightness.
+    l_blended = cv2.addWeighted(l_corrected, 0.25, l, 0.75, 0)
 
     return cv2.cvtColor(cv2.merge([l_blended, a, b]), cv2.COLOR_LAB2BGR)
 
@@ -87,62 +92,71 @@ def remove_shadows(bgr_image, face_rect):
     corrected = l_ch * (mean_l / safe_illum)
     corrected = np.clip(corrected, 0, 255).astype(np.uint8)
 
-    # Blend 65% corrected, 35% original — effective but natural
-    region_lab[:, :, 0] = cv2.addWeighted(corrected, 0.65, region_lab[:, :, 0], 0.35, 0)
+    # 40% corrected / 60% original — removes harsh shadows without
+    # flattening the natural luminance falloff on the face, which is
+    # what preserves a lifelike skin tone.
+    region_lab[:, :, 0] = cv2.addWeighted(corrected, 0.40, region_lab[:, :, 0], 0.60, 0)
     result[y1:y2, x1:x2] = cv2.cvtColor(region_lab, cv2.COLOR_LAB2BGR)
 
     return result
 
 
 def white_balance_skin_aware(bgr_image, face_rect):
-    """Adjust white balance guided by the subject's actual skin tone.
+    """Neutralize color casts while preserving natural skin warmth.
 
-    Samples skin from the forehead/cheek area and computes a gentle
-    per-channel correction toward neutral gray. Only 25% strength to
-    preserve the person's natural coloring.
+    Works in LAB space (perceptually uniform) so corrections are linear
+    in perceived color. Measures the sampled forehead's a* / b* values
+    against a realistic skin target and pulls deviations partway back.
+
+    The prior RGB-ratio implementation tended to push cool-ish skin
+    toward an overly warm target, producing a yellow cast. LAB space
+    with a tight deadzone avoids that failure mode.
 
     Args:
         bgr_image: OpenCV BGR numpy array
         face_rect: (x, y, w, h) face bounding box
 
     Returns:
-        White-balanced BGR image
+        White-balanced BGR image (often unchanged)
     """
     if face_rect is None:
-        return _gray_world_wb(bgr_image)
+        return bgr_image  # no reliable reference — skip WB
 
     x, y, w, h = face_rect
 
-    # Sample from center-forehead and cheek region
-    cx, cy = x + w // 2, y + int(h * 0.35)
-    s = max(w // 8, 8)
-
-    sy1 = max(0, cy - s)
-    sy2 = min(bgr_image.shape[0], cy + s)
-    sx1 = max(0, cx - s)
-    sx2 = min(bgr_image.shape[1], cx + s)
-
+    # Sample from forehead (most uniform skin region)
+    cx, cy = x + w // 2, y + int(h * 0.30)
+    s = max(w // 10, 6)
+    sy1 = max(0, cy - s); sy2 = min(bgr_image.shape[0], cy + s)
+    sx1 = max(0, cx - s); sx2 = min(bgr_image.shape[1], cx + s)
     sample = bgr_image[sy1:sy2, sx1:sx2]
     if sample.size == 0:
         return bgr_image
 
-    avg_b, avg_g, avg_r = [float(np.mean(sample[:, :, c])) for c in range(3)]
-    avg_all = (avg_b + avg_g + avg_r) / 3.0
+    # OpenCV LAB: 128 = neutral on a* and b*. Healthy skin lives at
+    # roughly a* ~ 138 (slight red) and b* ~ 143 (slight yellow —
+    # natural warmth but not a cast). Values well above these targets
+    # read as yellow / orange and must be pulled back.
+    TARGET_A = 138.0
+    TARGET_B = 143.0
+    DEADZONE = 6.0      # LAB units — tolerate small natural variation
+    STRENGTH = 0.6      # fraction of the deviation to remove
 
-    if min(avg_b, avg_g, avg_r) < 1:
-        return bgr_image
+    sample_lab = cv2.cvtColor(sample, cv2.COLOR_BGR2LAB)
+    avg_a = float(np.mean(sample_lab[:, :, 1]))
+    avg_b = float(np.mean(sample_lab[:, :, 2]))
 
-    # Gentle correction — 25% strength
-    strength = 0.25
-    scale_b = 1.0 + (avg_all / avg_b - 1.0) * strength
-    scale_g = 1.0 + (avg_all / avg_g - 1.0) * strength
-    scale_r = 1.0 + (avg_all / avg_r - 1.0) * strength
+    shift_a = avg_a - TARGET_A
+    shift_b = avg_b - TARGET_B
 
-    result = bgr_image.astype(np.float32)
-    result[:, :, 0] *= scale_b
-    result[:, :, 1] *= scale_g
-    result[:, :, 2] *= scale_r
-    return np.clip(result, 0, 255).astype(np.uint8)
+    if abs(shift_a) < DEADZONE and abs(shift_b) < DEADZONE:
+        return bgr_image  # within natural skin range — no cast to fix
+
+    lab_full = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2LAB).astype(np.float32)
+    lab_full[:, :, 1] -= shift_a * STRENGTH
+    lab_full[:, :, 2] -= shift_b * STRENGTH
+    lab_full = np.clip(lab_full, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(lab_full, cv2.COLOR_LAB2BGR)
 
 
 def _gray_world_wb(bgr_image):
@@ -223,12 +237,12 @@ def enhance_contrast(bgr_image):
     lab = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
 
-    # Mild S-curve: shadows slightly darker, highlights slightly brighter
+    # Very gentle S-curve — aggressive contrast darkens midtone skin
+    # and lightens highlights in an unflattering way. 0.08 boost is
+    # enough to add presence without distorting skin tonality.
     lut = np.arange(256, dtype=np.float32)
-    # Normalize to 0-1, apply sigmoid-like curve, scale back
     lut = lut / 255.0
-    # Gentle S-curve: y = 0.5 + 0.55 * (x - 0.5) when far from center
-    lut = 0.5 + (lut - 0.5) * (1.0 + 0.15 * (2 * np.abs(lut - 0.5)))
+    lut = 0.5 + (lut - 0.5) * (1.0 + 0.08 * (2 * np.abs(lut - 0.5)))
     lut = np.clip(lut * 255, 0, 255).astype(np.uint8)
 
     l_enhanced = cv2.LUT(l, lut)

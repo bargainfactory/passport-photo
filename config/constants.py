@@ -1,7 +1,13 @@
 """App-wide constants: pricing, DPI, currency mappings."""
 
-# Default output DPI for all passport/visa photos
-DEFAULT_DPI = 300
+# DPI settings
+# DOWNLOAD_DPI — the DPI metadata on the downloaded / print-ready file
+# PREVIEW_DPI  — the DPI used to render the on-screen preview (higher so
+#                the image displays crisply on hi-DPI / Retina screens)
+DOWNLOAD_DPI = 350
+PREVIEW_DPI = 600
+# Back-compat alias used throughout the codebase
+DEFAULT_DPI = DOWNLOAD_DPI
 
 # Stripe payment amount in cents (USD base)
 PHOTO_PRICE_CENTS = 499  # $4.99

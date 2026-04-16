@@ -125,11 +125,13 @@ def compute_face_metrics(face_rect, image_shape, eyes=None):
     # Eyes are roughly 35% from the top of the detected box.
     eye_line_y = y + int(h * 0.35)
 
-    # Head top is typically ~15% above the face box top
-    head_top_y = max(0, y - int(h * 0.15))
+    # Head top (including hair) is typically ~30% above the face box top.
+    # Using 15% here under-estimates head height, causing the crop to
+    # over-scale the head and clip the hair.
+    head_top_y = max(0, y - int(h * 0.30))
 
-    # Chin is approximately at the bottom of the face box
-    chin_y = y + h
+    # Chin sits slightly below the Haar box bottom (box ends near lower lip).
+    chin_y = min(img_h, y + h + int(h * 0.05))
 
     # Full head height estimate (top of head to chin)
     head_height = chin_y - head_top_y

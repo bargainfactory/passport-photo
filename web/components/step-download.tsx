@@ -1,52 +1,129 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Download, FileImage, Printer, Check, Lock,
-  CreditCard, Sparkles, Mail, Loader2,
+  CreditCard, Sparkles, Mail, Loader2, Sliders,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
+import { type ProcessedBundle } from "@/components/step-preview";
+import PhotoEditor, {
+  type Edits,
+  type Variant,
+  editsToCssFilter,
+  bakeEditsToDataUrl,
+  buildPrintSheet,
+} from "@/components/photo-editor";
+
+const DOWNLOAD_DPI = 350;
+const PREVIEW_DPI = 600;
 
 interface Props {
   country: CountrySpec;
   docType: "passport" | "visa";
-  processedUrl: string;
-  sheetUrl: string;
+  bundle: ProcessedBundle;
+  variant: Variant;
+  onVariantChange: (v: Variant) => void;
+  edits: Edits;
+  onEditsChange: (e: Edits) => void;
+  editedOverrideUrl: string | null;
+  onEditedOverrideChange: (url: string | null) => void;
   onBack: () => void;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export default function StepDownload({ country, docType, processedUrl, sheetUrl, onBack }: Props) {
+export default function StepDownload({
+  country, docType, bundle,
+  variant, onVariantChange, edits, onEditsChange,
+  editedOverrideUrl, onEditedOverrideChange,
+  onBack,
+}: Props) {
+  const spec = getSpec(country, docType);
   const [format, setFormat] = useState<"jpeg" | "png">("jpeg");
   const [layout, setLayout] = useState<"single" | "sheet">("single");
   const [paid, setPaid] = useState(false);
   const [loading, setLoading] = useState(false);
-  const spec = getSpec(country, docType);
+  const [downloading, setDownloading] = useState(false);
 
-  const currentUrl = layout === "sheet" ? sheetUrl : processedUrl;
+  // When advanced-tool edits are applied, regenerate the print sheet on
+  // the client from the edited photo so the sheet download reflects the
+  // same edits. Cache a preview-resolution + download-resolution pair.
+  const [editedSheetPreviewUrl, setEditedSheetPreviewUrl] = useState<string | null>(null);
+  const [editedSheetDownloadUrl, setEditedSheetDownloadUrl] = useState<string | null>(null);
 
-  // Check for payment return from Stripe
+  useEffect(() => {
+    if (!editedOverrideUrl) {
+      setEditedSheetPreviewUrl(null);
+      setEditedSheetDownloadUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [preview, download] = await Promise.all([
+          buildPrintSheet(editedOverrideUrl, spec.width_mm, spec.height_mm, PREVIEW_DPI),
+          buildPrintSheet(editedOverrideUrl, spec.width_mm, spec.height_mm, DOWNLOAD_DPI),
+        ]);
+        if (!cancelled) {
+          setEditedSheetPreviewUrl(preview);
+          setEditedSheetDownloadUrl(download);
+        }
+      } catch {
+        // Fall back to server-generated sheet on failure.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editedOverrideUrl, spec.width_mm, spec.height_mm]);
+
+  // Resolve which URL to use for display vs download based on variant,
+  // layout, and whether advanced-tool edits are active. Override always
+  // wins when present — including the sheet layout, by using the
+  // client-regenerated sheet.
+  const { displayUrl, downloadUrl } = useMemo(() => {
+    if (editedOverrideUrl) {
+      if (layout === "single") {
+        return { displayUrl: editedOverrideUrl, downloadUrl: editedOverrideUrl };
+      }
+      // Sheet layout with edits: use regenerated sheet if ready, else
+      // briefly fall back to the server sheet while it builds.
+      return {
+        displayUrl: editedSheetPreviewUrl ?? bundle.previewSheetUrl,
+        downloadUrl: editedSheetDownloadUrl ?? bundle.sheetUrl,
+      };
+    }
+    if (variant === "enhanced") {
+      return {
+        displayUrl: layout === "sheet" ? bundle.previewSheetUrl : bundle.previewUrl,
+        downloadUrl: layout === "sheet" ? bundle.sheetUrl : bundle.processedUrl,
+      };
+    }
+    return {
+      displayUrl:
+        layout === "sheet" ? bundle.originalPreviewSheetUrl : bundle.originalPreviewUrl,
+      downloadUrl:
+        layout === "sheet" ? bundle.originalSheetUrl : bundle.originalProcessedUrl,
+    };
+  }, [bundle, variant, layout, editedOverrideUrl, editedSheetPreviewUrl, editedSheetDownloadUrl]);
+
+  const cssFilter = useMemo(() => editsToCssFilter(edits), [edits]);
+
+  // Stripe return flow
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session_id");
     if (sessionId && params.get("paid") === "true") {
-      // Verify payment with backend
       fetch(`${API_URL}/api/verify-payment?session_id=${sessionId}`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (data.paid) {
             setPaid(true);
-            // Clean URL
             window.history.replaceState({}, "", window.location.pathname);
           }
         })
-        .catch(() => {
-          // If verification fails, still mark paid in test mode
-          setPaid(true);
-        });
+        .catch(() => setPaid(true));
     }
   }, []);
 
@@ -61,32 +138,40 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
           cancel_url: window.location.origin + "?cancelled=true",
         }),
       });
-
-      if (!res.ok) {
-        throw new Error("Failed to create checkout session");
-      }
-
+      if (!res.ok) throw new Error("Failed to create checkout session");
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      }
+      if (data.url) window.location.href = data.url;
     } catch {
-      // Fallback: simulate payment for development/demo
-      setPaid(true);
+      setPaid(true); // dev fallback
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const handleDownload = useCallback(() => {
-    const link = document.createElement("a");
-    link.href = currentUrl;
-    const name = layout === "sheet"
-      ? `passport_photo_sheet_${country.name.toLowerCase().replace(/\s+/g, "_")}.${format}`
-      : `passport_photo_${country.name.toLowerCase().replace(/\s+/g, "_")}.${format}`;
-    link.download = name;
-    link.click();
-  }, [currentUrl, country, format, layout]);
+  const handleDownload = useCallback(async () => {
+    setDownloading(true);
+    try {
+      // Bake the slider edits into the downloaded file so it matches
+      // what the user sees on screen. Skip baking if no edits applied
+      // (saves one canvas round-trip + preserves DPI metadata).
+      const noEdits =
+        edits.brightness === 1 &&
+        edits.contrast === 1 &&
+        edits.saturation === 1 &&
+        edits.warmth === 0;
+      const finalUrl = noEdits
+        ? downloadUrl
+        : await bakeEditsToDataUrl(downloadUrl, edits, format);
+
+      const link = document.createElement("a");
+      link.href = finalUrl;
+      const base = layout === "sheet" ? "passport_photo_sheet" : "passport_photo";
+      link.download = `${base}_${country.name.toLowerCase().replace(/\s+/g, "_")}.${format}`;
+      link.click();
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloadUrl, edits, format, layout, country]);
 
   return (
     <motion.div
@@ -108,28 +193,29 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Left: Preview */}
+        {/* Left: Preview + format/layout */}
         <div className="lg:col-span-3 space-y-5">
           <div className="glass rounded-xl p-6 shadow-glass">
             <div className="flex flex-col items-center">
               <div className="rounded-lg overflow-hidden bg-white shadow-md border border-slate-100 inline-block">
                 <img
-                  src={currentUrl}
+                  src={displayUrl}
                   alt="Final photo"
                   className="max-h-80 object-contain"
+                  style={{ filter: cssFilter }}
                 />
               </div>
               <p className="text-xs text-slate-400 mt-3">
                 {layout === "sheet" ? (
-                  <>4&times;6&quot; print sheet &middot; 4 photos &middot; 300 DPI &middot; {format.toUpperCase()}</>
+                  <>4&times;6&quot; print sheet &middot; 6 photos &middot; 350 DPI print &middot; {format.toUpperCase()}</>
                 ) : (
-                  <>{spec.width_mm}&times;{spec.height_mm}mm &middot; 300 DPI &middot; {format.toUpperCase()} &middot; White background</>
+                  <>{spec.width_mm}&times;{spec.height_mm}mm &middot; 350 DPI print &middot; {format.toUpperCase()} &middot; {variant === "enhanced" ? "AI-enhanced" : "Original"}</>
                 )}
               </p>
             </div>
           </div>
 
-          {/* Format & layout selectors */}
+          {/* Format & layout */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">
@@ -179,6 +265,25 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
               </div>
             </div>
           </div>
+
+          {/* Editor */}
+          <div className="glass rounded-xl p-5 shadow-glass">
+            <div className="flex items-center gap-2 mb-4">
+              <Sliders className="h-4 w-4 text-teal-600" />
+              <h3 className="text-sm font-bold text-navy-600">Customize your photo</h3>
+            </div>
+            <PhotoEditor
+              variant={variant}
+              onVariantChange={onVariantChange}
+              edits={edits}
+              onEditsChange={onEditsChange}
+              previewUrl={displayUrl}
+              advancedSrcUrl={bundle.previewUrl}
+              bgColor={spec.bg_color as [number, number, number]}
+              onAdvancedApply={(url) => onEditedOverrideChange(url)}
+              compact
+            />
+          </div>
         </div>
 
         {/* Right: Payment / Download */}
@@ -196,20 +301,32 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
                 Your Photo is Ready!
               </h3>
               <p className="text-sm text-emerald-700/70 mb-5">
-                Download your compliant photo below.
+                Your edits will be applied to the downloaded file.
               </p>
 
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleDownload}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-500 px-6 py-3 text-sm font-bold text-white shadow-lg mb-3"
+                disabled={downloading}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-500 px-6 py-3 text-sm font-bold text-white shadow-lg mb-3",
+                  downloading && "opacity-70 cursor-not-allowed",
+                )}
               >
-                <Download className="h-4 w-4" />
-                Download {layout === "sheet" ? "Print Sheet" : "Photo"} ({format.toUpperCase()})
+                {downloading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Preparing file&hellip;
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    Download {layout === "sheet" ? "Print Sheet" : "Photo"} ({format.toUpperCase()})
+                  </>
+                )}
               </motion.button>
 
-              {/* Download the other layout too */}
               <button
                 onClick={() => {
                   setLayout(layout === "single" ? "sheet" : "single");
@@ -217,10 +334,9 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
               >
-                Also download {layout === "single" ? "2\u00d72 Print Sheet" : "Single Photo"}
+                Also download {layout === "single" ? "6-up Print Sheet" : "Single Photo"}
               </button>
 
-              {/* Email */}
               <div className="mt-5 pt-4 border-t border-emerald-200/50">
                 <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
                   <Mail className="h-3.5 w-3.5" />
@@ -258,11 +374,12 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
 
               <div className="space-y-2 mb-6">
                 {[
+                  "Choose AI-Enhanced or Original version",
+                  "Fine-tune brightness, contrast, warmth",
                   "Watermark-free high-resolution photo",
-                  "300 DPI print-ready quality",
-                  "Both JPEG and PNG formats",
-                  "2\u00d72 print sheet (4\u00d76\") included",
-                  "Unlimited re-downloads for 30 days",
+                  "350 DPI print-ready (600 DPI preview)",
+                  "JPEG and PNG formats",
+                  "6-up print sheet (4\u00d76\") included",
                 ].map((f) => (
                   <div key={f} className="flex items-start gap-2 text-sm text-slate-600">
                     <Check className="h-4 w-4 text-teal-500 mt-0.5 flex-shrink-0" />
@@ -306,7 +423,6 @@ export default function StepDownload({ country, docType, processedUrl, sheetUrl,
           )}
         </div>
       </div>
-
     </motion.div>
   );
 }

@@ -24,3 +24,4 @@ data/
 .claude/
 web/.next/
 web/node_modules/
+web/tsconfig.tsbuildinfo

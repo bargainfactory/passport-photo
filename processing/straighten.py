@@ -161,9 +161,12 @@ def straighten_image(bgr_image, face_rect=None):
 
     h, w = bgr_image.shape[:2]
 
-    # Rotate around center of face (midpoint between eyes)
-    center = ((lx + rx) // 2, (ly + ry) // 2)
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    # Rotate around center of face (midpoint between eyes).
+    # cv2.getRotationMatrix2D requires native Python floats — numpy scalar
+    # types (e.g. np.int32 from Haar detections) trigger
+    # "Can't parse 'center'. Sequence item with index 0 has a wrong type".
+    center = (float((lx + rx) / 2.0), float((ly + ry) / 2.0))
+    M = cv2.getRotationMatrix2D(center, float(angle), 1.0)
 
     # Compute new bounding box to avoid clipping
     cos_a = abs(M[0, 0])

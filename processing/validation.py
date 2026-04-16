@@ -8,6 +8,41 @@ import cv2
 import numpy as np
 from config.constants import MAX_TILT_DEGREES, MIN_IMAGE_WIDTH, MIN_IMAGE_HEIGHT
 
+# MediaPipe Face Mesh gives reliable landmark-based eye/mouth analysis
+# across skin tones and lighting. Fall back to heuristics if unavailable.
+_mp_face_mesh = None
+_mp_available = False
+try:
+    import mediapipe as mp
+    _mp_available = True
+except ImportError:
+    pass
+
+
+def _get_face_mesh():
+    """Lazy-load MediaPipe FaceMesh."""
+    global _mp_face_mesh
+    if _mp_face_mesh is None and _mp_available:
+        _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+        )
+    return _mp_face_mesh
+
+
+def _landmarks(image_bgr):
+    """Return FaceMesh landmarks (normalized 0-1) or None."""
+    mesh = _get_face_mesh()
+    if mesh is None:
+        return None
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    res = mesh.process(rgb)
+    if not res.multi_face_landmarks:
+        return None
+    return res.multi_face_landmarks[0].landmark
+
 
 def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
     """Run all validation checks on an uploaded photo.
@@ -169,90 +204,127 @@ def _check_red_eye(image_bgr, face_rect):
     return bool(red_pct < 2)  # Less than 2% red pixels = no red-eye
 
 
-def _check_eyes_open(image_bgr, face_rect):
-    """Check if both eyes are open using eye aspect ratio heuristic.
+def _eye_aspect_ratio(landmarks, img_w, img_h, indices):
+    """Compute Eye Aspect Ratio (EAR) from FaceMesh landmarks.
 
-    Detects eyes via Haar cascade, then checks if each eye region has
-    enough dark pixels (iris/pupil) to indicate the eye is open.
+    indices = (outer, inner, top1, top2, bottom1, bottom2)
+    EAR = (|top1-bottom1| + |top2-bottom2|) / (2 * |outer-inner|)
+    Open eye ~0.25-0.35, closed eye <0.15.
     """
+    pts = []
+    for idx in indices:
+        lm = landmarks[idx]
+        pts.append(np.array([lm.x * img_w, lm.y * img_h]))
+    outer, inner, t1, t2, b1, b2 = pts
+    horiz = np.linalg.norm(outer - inner)
+    if horiz < 1e-3:
+        return 0.0
+    vert = (np.linalg.norm(t1 - b1) + np.linalg.norm(t2 - b2)) / 2.0
+    return float(vert / horiz)
+
+
+def _check_eyes_open(image_bgr, face_rect):
+    """Check if both eyes are open using Eye Aspect Ratio (EAR).
+
+    Uses MediaPipe Face Mesh landmarks — robust across skin tones and
+    lighting. Falls back to a lenient Haar check if FaceMesh fails.
+    """
+    h, w = image_bgr.shape[:2]
+    landmarks = _landmarks(image_bgr)
+
+    if landmarks is not None:
+        # Right eye (subject's right): 33 outer, 133 inner, 159/158 top, 145/153 bottom
+        # Left eye:                    263 outer, 362 inner, 386/385 top, 374/380 bottom
+        try:
+            ear_r = _eye_aspect_ratio(landmarks, w, h, (33, 133, 159, 158, 145, 153))
+            ear_l = _eye_aspect_ratio(landmarks, w, h, (263, 362, 386, 385, 374, 380))
+        except (IndexError, AttributeError):
+            ear_r = ear_l = 0.25
+
+        ear_avg = (ear_r + ear_l) / 2.0
+        # 0.18 is a well-accepted closed-eye threshold in the drowsiness-
+        # detection literature. Anything above that is considered open.
+        if ear_avg >= 0.18:
+            return True, "Both eyes appear open."
+        # Only one eye clearly closed — warn
+        if min(ear_r, ear_l) < 0.15 and max(ear_r, ear_l) >= 0.18:
+            return False, "One eye may be partially closed. Keep both eyes fully open."
+        return False, "Eyes may be closed. Keep both eyes open and clearly visible."
+
+    # --- Fallback: lenient Haar check (benefit of the doubt) ---
     x, y, fw, fh = face_rect
-
-    # Eye region: upper 20-45% of face
-    eye_top = y + int(fh * 0.18)
-    eye_bottom = y + int(fh * 0.45)
-    eye_left = x + int(fw * 0.05)
-    eye_right = x + int(fw * 0.95)
-
-    if eye_top >= eye_bottom or eye_left >= eye_right:
-        return True, "Unable to assess eyes."
-
-    eye_region = image_bgr[eye_top:eye_bottom, eye_left:eye_right]
+    eye_region = image_bgr[y + int(fh * 0.18):y + int(fh * 0.45),
+                           x + int(fw * 0.05):x + int(fw * 0.95)]
     if eye_region.size == 0:
-        return True, "Unable to assess eyes."
-
+        return True, "Both eyes appear open."
     gray_eyes = cv2.cvtColor(eye_region, cv2.COLOR_BGR2GRAY)
+    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    eyes = eye_cascade.detectMultiScale(gray_eyes, 1.1, 3)
+    if len(eyes) >= 1:
+        return True, "Both eyes appear open."
+    # Only fail if eye-tree-eyeglasses cascade also finds nothing
+    alt = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml")
+    if len(alt.detectMultiScale(gray_eyes, 1.1, 3)) >= 1:
+        return True, "Both eyes appear open."
+    return False, "Eyes may be closed. Keep both eyes open and clearly visible."
 
-    # Use Haar cascade for eye detection
-    eye_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_eye.xml"
-    )
-    eyes = eye_cascade.detectMultiScale(
-        gray_eyes, scaleFactor=1.1, minNeighbors=3,
-        minSize=(int(fw * 0.06), int(fh * 0.03)),
-    )
 
-    if len(eyes) < 2:
-        # Fewer than 2 eyes detected — likely closed or obscured
-        # Double-check with eye-open cascade
-        eye_open_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml"
-        )
-        eyes_open = eye_open_cascade.detectMultiScale(
-            gray_eyes, scaleFactor=1.1, minNeighbors=3,
-            minSize=(int(fw * 0.06), int(fh * 0.03)),
-        )
-        if len(eyes_open) < 2:
-            return False, "Eyes may be closed. Keep both eyes open and clearly visible."
+def _mouth_aspect_ratio(landmarks, img_w, img_h):
+    """Mouth Aspect Ratio — vertical lip gap / horizontal mouth width.
 
-    return True, "Both eyes appear open."
+    Uses inner lip landmarks (13 upper, 14 lower) and corners (61, 291).
+    Closed mouth MAR ~0.00-0.03, slightly parted ~0.03-0.08, open >0.10.
+    """
+    top = landmarks[13]     # inner upper lip
+    bot = landmarks[14]     # inner lower lip
+    left = landmarks[61]    # left corner
+    right = landmarks[291]  # right corner
+    vert = abs(top.y - bot.y) * img_h
+    horiz = abs(right.x - left.x) * img_w
+    if horiz < 1e-3:
+        return 0.0
+    return float(vert / horiz)
 
 
 def _check_mouth_closed(image_bgr, face_rect):
-    """Check if the mouth is closed (no teeth showing).
+    """Check mouth is closed using Mouth Aspect Ratio (MAR).
 
-    Looks at the lower face region for bright white pixels that indicate
-    exposed teeth against the darker lip/skin area.
+    MAR from MediaPipe inner-lip landmarks is a direct geometric
+    measurement — no brightness/skin-tone bias like the prior heuristic.
     """
-    x, y, fw, fh = face_rect
     h, w = image_bgr.shape[:2]
+    landmarks = _landmarks(image_bgr)
 
-    # Mouth region: lower 30% of face, center 60% width
-    mouth_top = y + int(fh * 0.65)
-    mouth_bottom = min(h, y + int(fh * 1.0))
-    mouth_left = x + int(fw * 0.2)
-    mouth_right = x + int(fw * 0.8)
+    if landmarks is not None:
+        try:
+            mar = _mouth_aspect_ratio(landmarks, w, h)
+        except (IndexError, AttributeError):
+            mar = 0.0
+        # Closed / neutrally closed: MAR < ~0.08. Open / teeth-showing: >0.10.
+        if mar < 0.09:
+            return True, "Mouth closed, neutral expression."
+        return False, (
+            f"Mouth appears open (gap ratio {mar:.2f}). "
+            "Keep mouth closed with a neutral expression."
+        )
 
+    # --- Fallback: tightened brightness heuristic ---
+    # Narrower mouth band + stricter thresholds to avoid false positives
+    # from lip highlights on closed mouths.
+    x, y, fw, fh = face_rect
+    mouth_top = y + int(fh * 0.72)
+    mouth_bottom = min(h, y + int(fh * 0.92))
+    mouth_left = x + int(fw * 0.28)
+    mouth_right = x + int(fw * 0.72)
     if mouth_top >= mouth_bottom or mouth_left >= mouth_right:
-        return True, "Unable to assess mouth."
-
-    mouth_region = image_bgr[mouth_top:mouth_bottom, mouth_left:mouth_right]
-    if mouth_region.size == 0:
-        return True, "Unable to assess mouth."
-
-    # Convert to LAB for luminance analysis
-    lab = cv2.cvtColor(mouth_region, cv2.COLOR_BGR2LAB)
-    l_channel = lab[:, :, 0]
-
-    # Teeth are distinctly brighter than surrounding lip/skin area
-    # High luminance + low saturation = likely teeth
-    hsv = cv2.cvtColor(mouth_region, cv2.COLOR_BGR2HSV)
-    saturation = hsv[:, :, 1]
-
-    # Teeth: bright (L > 180) and low saturation (S < 60)
-    teeth_mask = (l_channel > 180) & (saturation < 60)
+        return True, "Mouth closed, neutral expression."
+    region = image_bgr[mouth_top:mouth_bottom, mouth_left:mouth_right]
+    if region.size == 0:
+        return True, "Mouth closed, neutral expression."
+    lab = cv2.cvtColor(region, cv2.COLOR_BGR2LAB)
+    hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+    teeth_mask = (lab[:, :, 0] > 200) & (hsv[:, :, 1] < 40)
     teeth_pct = float(np.sum(teeth_mask)) / teeth_mask.size * 100
-
-    if teeth_pct > 8:
-        return False, f"Teeth may be visible ({teeth_pct:.0f}% bright pixels in mouth area). Keep mouth closed with a neutral expression."
-
+    if teeth_pct > 15:
+        return False, "Teeth may be visible. Keep mouth closed with a neutral expression."
     return True, "Mouth closed, neutral expression."

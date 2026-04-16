@@ -35,10 +35,13 @@ def crop_and_center(pil_image, face_metrics, spec, dpi=DEFAULT_DPI):
     out_w_px = mm_to_px(spec["width_mm"], dpi)
     out_h_px = mm_to_px(spec["height_mm"], dpi)
 
-    # Target head height as percentage of output height
+    # Target head height as percentage of output height. Using the lower
+    # end of the spec range (rather than the midpoint) keeps the face
+    # comfortably centered with margin above the hair and below the chin
+    # — the midpoint tends to look uncomfortably zoomed-in on most specs.
     head_pct_min, head_pct_max = spec["head_pct"]
-    head_pct_mid = (head_pct_min + head_pct_max) / 2.0
-    target_head_px = out_h_px * (head_pct_mid / 100.0)
+    head_pct_target = head_pct_min + (head_pct_max - head_pct_min) * 0.25
+    target_head_px = out_h_px * (head_pct_target / 100.0)
 
     # Current head height in the image
     current_head_h = face_metrics["head_height"]
@@ -70,26 +73,31 @@ def crop_and_center(pil_image, face_metrics, spec, dpi=DEFAULT_DPI):
     crop_left = cx - out_w_px // 2
     crop_top = scaled_eye_y - int(target_eye_y)
 
-    # Clamp to image bounds
+    # Pad with background color whenever the crop would extend past the
+    # resized image bounds. This preserves correct head size & eye-line
+    # placement instead of clipping the hair or shoulders when the source
+    # selfie was framed tight.
+    bg_color = spec.get("bg_color", (255, 255, 255))
+
+    pad_left = max(0, -crop_left)
+    pad_top = max(0, -crop_top)
+    pad_right = max(0, (crop_left + out_w_px) - new_w)
+    pad_bottom = max(0, (crop_top + out_h_px) - new_h)
+
+    if pad_left or pad_top or pad_right or pad_bottom:
+        canvas_w = new_w + pad_left + pad_right
+        canvas_h = new_h + pad_top + pad_bottom
+        canvas = Image.new("RGB", (canvas_w, canvas_h), bg_color)
+        canvas.paste(resized, (pad_left, pad_top))
+        resized = canvas
+        # Shift crop origin into the padded canvas
+        crop_left += pad_left
+        crop_top += pad_top
+        new_w, new_h = canvas_w, canvas_h
+
+    # Safety clamp (should be no-op after padding)
     crop_left = max(0, min(crop_left, new_w - out_w_px))
     crop_top = max(0, min(crop_top, new_h - out_h_px))
-
-    # If the image is smaller than the output, pad with background color
-    if new_w < out_w_px or new_h < out_h_px:
-        bg_color = spec.get("bg_color", (255, 255, 255))
-        canvas = Image.new("RGB", (max(new_w, out_w_px), max(new_h, out_h_px)), bg_color)
-        paste_x = (canvas.width - new_w) // 2
-        paste_y = (canvas.height - new_h) // 2
-        canvas.paste(resized, (paste_x, paste_y))
-        resized = canvas
-        new_w, new_h = resized.size
-        # Recalculate crop position on padded canvas
-        cx = cx + paste_x
-        scaled_eye_y = scaled_eye_y + paste_y
-        crop_left = cx - out_w_px // 2
-        crop_top = scaled_eye_y - int(target_eye_y)
-        crop_left = max(0, min(crop_left, new_w - out_w_px))
-        crop_top = max(0, min(crop_top, new_h - out_h_px))
 
     crop_right = crop_left + out_w_px
     crop_bottom = crop_top + out_h_px
