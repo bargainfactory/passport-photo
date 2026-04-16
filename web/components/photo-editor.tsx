@@ -43,6 +43,59 @@ export function editsToCssFilter(e: Edits): string {
     .join(" ");
 }
 
+/** Estimate the byte size of a base64 data URL payload. */
+function dataUrlBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(",");
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - pad;
+}
+
+/**
+ * Re-encode a JPEG data URL under a byte-size cap by searching JPEG
+ * quality. Used for destinations (e.g. US passport online submission)
+ * that impose a hard file-size limit. No-op if the input already fits.
+ */
+export async function fitJpegUnderKB(
+  dataUrl: string,
+  maxKB: number,
+): Promise<string> {
+  const target = maxKB * 1024;
+  if (dataUrlBytes(dataUrl) <= target) return dataUrl;
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (!dataUrl.startsWith("data:")) img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      if (!ctx) return reject(new Error("canvas unsupported"));
+      ctx.drawImage(img, 0, 0);
+
+      // Binary search over quality in [0.3, 0.95] for the highest
+      // quality that fits the cap.
+      let lo = 0.3, hi = 0.95;
+      let best = c.toDataURL("image/jpeg", hi);
+      if (dataUrlBytes(best) <= target) return resolve(best);
+      for (let i = 0; i < 8; i++) {
+        const q = (lo + hi) / 2;
+        const candidate = c.toDataURL("image/jpeg", q);
+        if (dataUrlBytes(candidate) <= target) {
+          best = candidate;
+          lo = q;
+        } else {
+          hi = q;
+        }
+      }
+      resolve(best);
+    };
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = dataUrl;
+  });
+}
+
 /** Bake the CSS filter into a new data URL by drawing to canvas. */
 export async function bakeEditsToDataUrl(
   srcDataUrl: string,
@@ -73,18 +126,31 @@ export async function bakeEditsToDataUrl(
  * server's processing/print_sheet.py so edited photos can be re-tiled
  * on the client without a round-trip.
  */
+export interface PrintSheetOptions {
+  orientation?: "landscape" | "portrait";
+  cols?: number;
+  rows?: number;
+  /** Cut-line thickness in mm. Falls back to a DPI-derived default. */
+  separator_mm?: number;
+  /** Shift the grid down by this many mm (positive = lower). */
+  y_offset_mm?: number;
+}
+
 export async function buildPrintSheet(
   photoDataUrl: string,
   widthMm: number,
   heightMm: number,
   dpi: number,
   format: "jpeg" | "png" = "jpeg",
+  options: PrintSheetOptions = {},
 ): Promise<string> {
   const mmToPx = (mm: number) => Math.round((mm * dpi) / 25.4);
-  const sheetW = 6 * dpi;
-  const sheetH = 4 * dpi;
+  const orientation = options.orientation ?? "landscape";
+  const sheetW = (orientation === "portrait" ? 4 : 6) * dpi;
+  const sheetH = (orientation === "portrait" ? 6 : 4) * dpi;
   const margin = mmToPx(2);
-  const cols = 3, rows = 2;
+  const cols = options.cols ?? 3;
+  const rows = options.rows ?? 2;
 
   let photoW = mmToPx(widthMm);
   let photoH = mmToPx(heightMm);
@@ -115,7 +181,12 @@ export async function buildPrintSheet(
       const totalW = cols * photoW + (cols - 1) * margin;
       const totalH = rows * photoH + (rows - 1) * margin;
       const startX = Math.max(margin, Math.floor((sheetW - totalW) / 2));
-      const startY = Math.max(margin, Math.floor((sheetH - totalH) / 2));
+      const yOffsetPx = options.y_offset_mm ? mmToPx(options.y_offset_mm) : 0;
+      const maxStartY = sheetH - totalH - margin;
+      const startY = Math.max(
+        margin,
+        Math.min(Math.floor((sheetH - totalH) / 2) + yOffsetPx, maxStartY),
+      );
 
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
@@ -129,7 +200,9 @@ export async function buildPrintSheet(
 
       // Thin grey separator lines between rows / columns.
       ctx.strokeStyle = "rgb(180,180,180)";
-      ctx.lineWidth = Math.max(1, Math.floor(dpi / 175));
+      ctx.lineWidth = options.separator_mm
+        ? Math.max(1, Math.round(mmToPx(options.separator_mm)))
+        : Math.max(1, Math.floor(dpi / 175));
       const gridW = cols * photoW + (cols - 1) * margin;
       const gridH = rows * photoH + (rows - 1) * margin;
       for (let col = 1; col < cols; col++) {

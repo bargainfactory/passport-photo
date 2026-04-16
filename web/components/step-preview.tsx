@@ -107,6 +107,7 @@ export default function StepPreview({
           bg_color: spec.bg_color,
           head_pct: spec.head_pct,
           eye_line_pct: spec.eye_line_pct,
+          print_sheet: spec.print_sheet ?? null,
         }),
       });
 

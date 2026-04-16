@@ -10,36 +10,54 @@ from config.constants import (
 from processing.crop_resize import mm_to_px
 
 
-def create_print_sheet(photo, layout="3x2", dpi=DEFAULT_DPI):
+def create_print_sheet(
+    photo,
+    layout="3x2",
+    dpi=DEFAULT_DPI,
+    orientation="landscape",
+    cols=None,
+    rows=None,
+    separator_mm=None,
+    y_offset_mm=0.0,
+):
     """Create a 4x6 inch print sheet tiled with copies of the photo.
 
     Args:
         photo: PIL Image of the processed passport photo
-        layout: "3x2" (6 photos, default), "2x2" (4 photos), or "2x1"
+        layout: legacy string form ("3x2", "2x2", "2x1"). Ignored when
+                `cols` and `rows` are provided explicitly.
         dpi: Output DPI (default 350)
+        orientation: "landscape" (6x4") or "portrait" (4x6")
+        cols, rows: Explicit grid dimensions (override `layout`)
+        separator_mm: Cut-line thickness in mm. When None, uses a
+                      DPI-derived default (~0.14mm).
 
     Returns:
         PIL Image of the print sheet at the specified DPI
     """
-    sheet_w = int(PRINT_SHEET_WIDTH_IN * dpi)
-    sheet_h = int(PRINT_SHEET_HEIGHT_IN * dpi)
+    # Resolve grid from explicit cols/rows, falling back to the layout string.
+    if cols is None or rows is None:
+        if layout == "3x2":
+            cols, rows = 3, 2
+        elif layout == "2x2":
+            cols, rows = 2, 2
+        else:  # "2x1"
+            cols, rows = 2, 1
+
+    # Portrait swaps the canvas dimensions.
+    if orientation == "portrait":
+        sheet_w = int(PRINT_SHEET_HEIGHT_IN * dpi)
+        sheet_h = int(PRINT_SHEET_WIDTH_IN * dpi)
+    else:
+        sheet_w = int(PRINT_SHEET_WIDTH_IN * dpi)
+        sheet_h = int(PRINT_SHEET_HEIGHT_IN * dpi)
+
     margin = mm_to_px(PRINT_SHEET_MARGIN_MM, dpi)
-
-    # Create white canvas
     sheet = Image.new("RGB", (sheet_w, sheet_h), (255, 255, 255))
-
-    if layout == "3x2":
-        cols, rows = 3, 2
-    elif layout == "2x2":
-        cols, rows = 2, 2
-    else:  # "2x1"
-        cols, rows = 2, 1
 
     photo_w, photo_h = photo.size
 
     # Auto-scale the photo if the requested size doesn't fit the grid.
-    # Keeps larger passport photos (e.g. 51x51mm US) from overflowing
-    # the 6x4" sheet when ganged 6-up.
     avail_w = sheet_w - 2 * margin - (cols - 1) * margin
     avail_h = sheet_h - 2 * margin - (rows - 1) * margin
     max_w = avail_w // cols
@@ -50,18 +68,25 @@ def create_print_sheet(photo, layout="3x2", dpi=DEFAULT_DPI):
         photo_h = int(photo_h * scale)
         photo = photo.resize((photo_w, photo_h), Image.LANCZOS)
 
-    positions = _compute_grid_positions(sheet_w, sheet_h, photo_w, photo_h, cols, rows, margin)
+    y_offset_px = mm_to_px(y_offset_mm, dpi) if y_offset_mm else 0
+    positions = _compute_grid_positions(
+        sheet_w, sheet_h, photo_w, photo_h, cols, rows, margin, y_offset_px,
+    )
 
     for x, y in positions:
         sheet.paste(photo, (x, y))
 
-    sheet = _draw_cutting_lines(sheet, positions, photo_w, photo_h, margin, cols, rows, dpi)
+    sheet = _draw_cutting_lines(
+        sheet, positions, photo_w, photo_h, margin, cols, rows, dpi, separator_mm,
+    )
 
     sheet.info["dpi"] = (dpi, dpi)
     return sheet
 
 
-def _compute_grid_positions(sheet_w, sheet_h, photo_w, photo_h, cols, rows, margin):
+def _compute_grid_positions(
+    sheet_w, sheet_h, photo_w, photo_h, cols, rows, margin, y_offset_px=0,
+):
     """Compute centered grid positions for photos on the sheet."""
     total_w = cols * photo_w + (cols - 1) * margin
     total_h = rows * photo_h + (rows - 1) * margin
@@ -70,7 +95,10 @@ def _compute_grid_positions(sheet_w, sheet_h, photo_w, photo_h, cols, rows, marg
     start_y = (sheet_h - total_h) // 2
 
     start_x = max(margin, start_x)
-    start_y = max(margin, start_y)
+    # Apply the requested vertical nudge, clamped so the grid still fits
+    # on the sheet with at least `margin` of padding.
+    max_start_y = sheet_h - total_h - margin
+    start_y = max(margin, min(start_y + y_offset_px, max_start_y))
 
     positions = []
     for row in range(rows):
@@ -83,7 +111,9 @@ def _compute_grid_positions(sheet_w, sheet_h, photo_w, photo_h, cols, rows, marg
     return positions
 
 
-def _draw_cutting_lines(sheet, positions, photo_w, photo_h, margin, cols, rows, dpi):
+def _draw_cutting_lines(
+    sheet, positions, photo_w, photo_h, margin, cols, rows, dpi, separator_mm=None,
+):
     """Draw thin grey lines between photos to delineate each cell."""
     from PIL import ImageDraw
 
@@ -92,7 +122,10 @@ def _draw_cutting_lines(sheet, positions, photo_w, photo_h, margin, cols, rows, 
 
     draw = ImageDraw.Draw(sheet)
     color = (180, 180, 180)
-    lw = max(1, dpi // 175)  # 2px at 350 DPI, 3px at 600 DPI
+    if separator_mm is not None and separator_mm > 0:
+        lw = max(1, int(round(mm_to_px(separator_mm, dpi))))
+    else:
+        lw = max(1, dpi // 175)  # 2px at 350 DPI, 3px at 600 DPI
 
     start_x, start_y = positions[0]
     grid_w = cols * photo_w + (cols - 1) * margin

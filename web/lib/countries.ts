@@ -1,9 +1,39 @@
+export interface PrintSheetSpec {
+  /** "landscape" (6×4", default) or "portrait" (4×6") paper orientation. */
+  orientation?: "landscape" | "portrait";
+  /** Photos across × down. Defaults to 3×2 for landscape. */
+  cols?: number;
+  rows?: number;
+  /** Thickness of the cut-line between cells, in millimetres. */
+  separator_mm?: number;
+  /**
+   * Vertical nudge of the entire photo grid on the sheet, in millimetres
+   * (positive = shift down). Affects only the print-sheet layout, not
+   * the single digital download.
+   */
+  y_offset_mm?: number;
+}
+
 export interface PhotoSpec {
   width_mm: number;
   height_mm: number;
   bg_color: [number, number, number];
   head_pct: [number, number];
   eye_line_pct: [number, number];
+  /**
+   * Maximum file size in kilobytes for the digital download (JPEG).
+   * Only set when the destination requires it (e.g. US State Department
+   * online passport submission = 240 KB max — we cap at 230 for safety).
+   * When undefined, the download is unconstrained.
+   */
+  max_file_size_kb?: number;
+  /**
+   * Optional per-spec print-sheet layout. When undefined, the default
+   * 3×2 landscape sheet is used. Set for countries whose passport size
+   * does not gang-up cleanly 6-up (e.g. Canada's 50×70mm fits 4-up on
+   * a portrait 4×6" sheet).
+   */
+  print_sheet?: PrintSheetSpec;
 }
 
 export interface CountrySpec {
@@ -24,21 +54,33 @@ export const COUNTRIES: CountrySpec[] = [
     name: "United States",
     flag: "\u{1F1FA}\u{1F1F8}",
     region: "Americas",
-    passport: { width_mm: 51, height_mm: 51, bg_color: [255, 255, 255], head_pct: [70, 70], eye_line_pct: [56, 69] },
-    visa:     { width_mm: 51, height_mm: 51, bg_color: [255, 255, 255], head_pct: [70, 70], eye_line_pct: [56, 69] },
+    passport: { width_mm: 51, height_mm: 51, bg_color: [255, 255, 255], head_pct: [70, 70], eye_line_pct: [56, 69], max_file_size_kb: 230 },
+    visa:     { width_mm: 51, height_mm: 51, bg_color: [255, 255, 255], head_pct: [70, 70], eye_line_pct: [56, 69], max_file_size_kb: 230 },
     glasses: false, headgear: false,
     expression: "Neutral, eyes open, mouth closed",
-    notes: "No glasses since 2016. No headgear except religious. White background only.",
+    notes: "No glasses since 2016. No headgear except religious. White background only. Digital file capped at 230 KB for online submission.",
   },
   {
     name: "Canada",
     flag: "\u{1F1E8}\u{1F1E6}",
     region: "Americas",
-    passport: { width_mm: 50, height_mm: 70, bg_color: [255, 255, 255], head_pct: [31, 36], eye_line_pct: [56, 69] },
-    visa:     { width_mm: 35, height_mm: 45, bg_color: [255, 255, 255], head_pct: [31, 36], eye_line_pct: [56, 69] },
+    // head_pct [50, 51] → target head ~35mm on a 70mm photo (spec: 35-36mm).
+    passport: {
+      width_mm: 50, height_mm: 70,
+      bg_color: [255, 255, 255],
+      head_pct: [50, 51],
+      eye_line_pct: [56, 69],
+      print_sheet: { orientation: "portrait", cols: 2, rows: 2, separator_mm: 0.3, y_offset_mm: 4 },
+    },
+    visa: {
+      width_mm: 35, height_mm: 45,
+      bg_color: [255, 255, 255],
+      head_pct: [70, 80],
+      eye_line_pct: [56, 69],
+    },
     glasses: false, headgear: false,
     expression: "Neutral, mouth closed, eyes open",
-    notes: "Head 31-36mm in height. White or light background.",
+    notes: "Head 35-36mm in height on 50x70mm photo. White or light background.",
   },
   {
     name: "Brazil",

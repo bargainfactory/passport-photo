@@ -55,6 +55,15 @@ def _load_stripe_key():
 stripe.api_key = _load_stripe_key()
 
 
+class PrintSheetConfig(BaseModel):
+    """Per-country overrides for the print-sheet layout."""
+    orientation: str = "landscape"  # "landscape" or "portrait"
+    cols: int = 3
+    rows: int = 2
+    separator_mm: float | None = None  # None = DPI-derived default
+    y_offset_mm: float = 0.0  # nudge the grid down by this many mm
+
+
 class ProcessRequest(BaseModel):
     """Request body for photo processing."""
     image_b64: str  # base64-encoded image (data URL or raw b64)
@@ -63,6 +72,7 @@ class ProcessRequest(BaseModel):
     bg_color: list[int]  # [R, G, B]
     head_pct: list[int]  # [min, max]
     eye_line_pct: list[int]  # [min, max]
+    print_sheet: PrintSheetConfig | None = None
 
 
 class ProcessResponse(BaseModel):
@@ -126,16 +136,21 @@ def process_photo(req: ProcessRequest):
 def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> ProcessResponse:
     """Run the full AI processing pipeline.
 
-    Pipeline order:
+    Pipeline order (2025-04 revision — "crop-first" for sharper edges):
     1. Face detection on original
-    2. Head straightening (tilt correction via MediaPipe/Haar)
-    3. Lighting correction + shadow removal + white balance
-    4. Validation checks (on corrected image)
-    5. Background removal (rembg ISNet + alpha refinement)
-    6. Replace background with spec color
-    7. Skin enhancement + contrast + print sharpening
-    8. Crop and center to spec dimensions
-    9. Generate 4x6 print sheet
+    2. Head straightening (tilt correction)
+    3. Enhancement on full frame (face-aware lighting, smoothing, sharpen)
+    4. Crop BOTH variants to 600 DPI (original background still present)
+    5. Background removal on the 600 DPI crop → alpha mask at output res
+    6. Composite onto spec bg_color
+    7. Validation checks
+    8. Downsample preview (600 DPI) → download (350 DPI)
+    9. Generate print sheets
+
+    Running bg removal AFTER cropping to output resolution means the
+    segmentation mask is generated at 600 DPI rather than at the camera's
+    (often much higher) resolution then downscaled. This preserves sharp
+    subject edges — the mask-to-output ratio is close to 1:1.
     """
 
     # --- Step 1: Decode & detect face ---
@@ -153,74 +168,80 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
     # --- Step 2: Straighten head tilt ---
     straightened, tilt_angle = straighten_image(image_bgr, face_rect)
 
-    # Re-detect face after straightening (coordinates shifted)
     if abs(tilt_angle) > 0.5:
         face_rect = detect_face(straightened)
         if face_rect is None:
-            # Fall back to un-straightened if re-detection fails
             straightened = image_bgr
             face_rect = detect_face(image_bgr)
             if face_rect is None:
                 raise HTTPException(422, "Face lost after straightening. Try a clearer photo.")
 
-    # --- Step 3: Background removal on the straightened image ---
-    straightened_pil = cv2_to_pil(straightened)
-    straightened_bytes = pil_to_bytes(straightened_pil, fmt="PNG")
-    rgba_image = remove_background(straightened_bytes)
+    # --- Step 3: Face metrics + enhancement on the full frame ---
+    eyes = detect_eyes(straightened, face_rect)
+    face_metrics = compute_face_metrics(face_rect, straightened.shape, eyes)
 
-    # --- Step 4: Enhancement is applied to the SUBJECT pixels only,
-    # BEFORE compositing onto the background color. Enhancing after
-    # compositing would let white-balance / warmth shifts tint the
-    # otherwise-pure bg_color (the classic "yellow halo" artifact). ---
-    bg_color = tuple(req.bg_color)
-
-    # Original variant: composite raw matte onto bg_color
-    original_rgb = replace_background(rgba_image, bg_color)
-
-    # Enhanced variant: enhance the straightened BGR (full frame, so
-    # face-aware regions still have context), then re-attach the
-    # matte's alpha channel and composite onto bg_color.
     enhanced_full_bgr = full_enhance_pipeline(straightened, face_rect)
-    enhanced_full_rgb = cv2_to_pil(enhanced_full_bgr).convert("RGBA")
-    rgba_enhanced = Image.merge(
-        "RGBA",
-        (*enhanced_full_rgb.split()[:3], rgba_image.split()[3]),
-    )
-    enhanced_rgb = replace_background(rgba_enhanced, bg_color)
-    enhanced_bgr = pil_to_cv2(enhanced_rgb)  # for validation
 
-    # --- Step 6: Validation — run on enhanced version ---
-    eyes = detect_eyes(enhanced_bgr, face_rect)
-    face_metrics = compute_face_metrics(face_rect, enhanced_bgr.shape, eyes)
-    validation_results = validate_photo(enhanced_bgr, face_rect, face_metrics, spec)
+    # --- Step 4: Crop both variants to 600 DPI (bg still present) ---
+    straightened_pil = cv2_to_pil(straightened)
+    enhanced_pil = cv2_to_pil(enhanced_full_bgr)
 
-    # --- Step 7: Re-detect face on composite for accurate crop ---
-    original_rgb_bgr = pil_to_cv2(original_rgb)
-    new_face = detect_face(original_rgb_bgr)
-    if new_face is not None:
-        new_eyes = detect_eyes(original_rgb_bgr, new_face)
-        new_metrics = compute_face_metrics(new_face, original_rgb_bgr.shape, new_eyes)
+    orig_crop = crop_and_center(straightened_pil, face_metrics, spec, dpi=PREVIEW_DPI)
+    enh_crop = crop_and_center(enhanced_pil, face_metrics, spec, dpi=PREVIEW_DPI)
+
+    # --- Step 5: Background removal at 600 DPI ---
+    # Single segmentation pass on the original crop; the alpha mask is
+    # shared with the enhanced variant (identical crop geometry).
+    orig_crop_bytes = pil_to_bytes(orig_crop, fmt="PNG")
+    rgba_crop = remove_background(orig_crop_bytes)
+    alpha_channel = rgba_crop.split()[3]
+
+    # Apply same alpha to enhanced crop
+    enh_crop_rgba = enh_crop.convert("RGBA")
+    enh_rgba = Image.merge("RGBA", (*enh_crop_rgba.split()[:3], alpha_channel))
+
+    # --- Step 6: Composite onto background color ---
+    bg_color = tuple(req.bg_color)
+    orig_preview = replace_background(rgba_crop, bg_color)
+    enh_preview = replace_background(enh_rgba, bg_color)
+    orig_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
+    enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
+
+    # --- Step 7: Validation ---
+    enhanced_bgr = pil_to_cv2(enh_preview)
+    val_face = detect_face(enhanced_bgr)
+    if val_face is not None:
+        val_eyes = detect_eyes(enhanced_bgr, val_face)
+        val_metrics = compute_face_metrics(val_face, enhanced_bgr.shape, val_eyes)
     else:
-        new_metrics = face_metrics
+        val_metrics = face_metrics
+    validation_results = validate_photo(
+        enhanced_bgr, val_face or face_rect, val_metrics, spec,
+    )
 
-    # --- Step 8: Crop both variants to the same spec (600 DPI preview,
-    # then downsample to 350 DPI for download) ---
+    # --- Step 8: Downsample to download DPI ---
     download_w = mm_to_px(spec["width_mm"], DOWNLOAD_DPI)
     download_h = mm_to_px(spec["height_mm"], DOWNLOAD_DPI)
 
-    enh_preview = crop_and_center(enhanced_rgb, new_metrics, spec, dpi=PREVIEW_DPI)
     enh_processed = enh_preview.resize((download_w, download_h), Image.LANCZOS)
     enh_processed.info["dpi"] = (DOWNLOAD_DPI, DOWNLOAD_DPI)
 
-    orig_preview = crop_and_center(original_rgb, new_metrics, spec, dpi=PREVIEW_DPI)
     orig_processed = orig_preview.resize((download_w, download_h), Image.LANCZOS)
     orig_processed.info["dpi"] = (DOWNLOAD_DPI, DOWNLOAD_DPI)
 
     # --- Step 9: Print sheets for both variants at both DPIs ---
-    enh_preview_sheet = create_print_sheet(enh_preview, layout="3x2", dpi=PREVIEW_DPI)
-    enh_sheet = create_print_sheet(enh_processed, layout="3x2", dpi=DOWNLOAD_DPI)
-    orig_preview_sheet = create_print_sheet(orig_preview, layout="3x2", dpi=PREVIEW_DPI)
-    orig_sheet = create_print_sheet(orig_processed, layout="3x2", dpi=DOWNLOAD_DPI)
+    ps = req.print_sheet
+    sheet_kwargs = {
+        "orientation": ps.orientation if ps else "landscape",
+        "cols": ps.cols if ps else 3,
+        "rows": ps.rows if ps else 2,
+        "separator_mm": ps.separator_mm if ps else None,
+        "y_offset_mm": ps.y_offset_mm if ps else 0.0,
+    }
+    enh_preview_sheet = create_print_sheet(enh_preview, dpi=PREVIEW_DPI, **sheet_kwargs)
+    enh_sheet = create_print_sheet(enh_processed, dpi=DOWNLOAD_DPI, **sheet_kwargs)
+    orig_preview_sheet = create_print_sheet(orig_preview, dpi=PREVIEW_DPI, **sheet_kwargs)
+    orig_sheet = create_print_sheet(orig_processed, dpi=DOWNLOAD_DPI, **sheet_kwargs)
 
     def _b64(pil_img, quality=95):
         return "data:image/jpeg;base64," + base64.b64encode(
@@ -244,9 +265,22 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
 
 
 class CheckoutRequest(BaseModel):
-    """Request body for creating a Stripe checkout session."""
+    """Request body for creating a Stripe checkout session.
+
+    items contains any subset of {"digital", "sheet"} — the user can
+    buy either product on its own or both together (bundle-priced).
+    """
+    items: list[str] = ["digital"]
     success_url: str = "http://localhost:3000?paid=true"
     cancel_url: str = "http://localhost:3000?cancelled=true"
+
+
+# (items-key, price cents, Stripe product name)
+_ITEM_PRICING = {
+    frozenset({"digital"}): (499, "Passport Photo — Digital Download"),
+    frozenset({"sheet"}): (499, "Passport Photo — 4x6\" Print Sheet"),
+    frozenset({"digital", "sheet"}): (799, "Passport Photo — Digital + 4x6\" Print Sheet"),
+}
 
 
 @app.post("/api/create-checkout")
@@ -254,6 +288,11 @@ def create_checkout(req: CheckoutRequest):
     """Create a Stripe Checkout Session and return the URL."""
     if not stripe.api_key:
         raise HTTPException(500, "Stripe is not configured")
+
+    valid = sorted({i for i in req.items if i in {"digital", "sheet"}})
+    if not valid:
+        raise HTTPException(400, "Must select at least one item")
+    price_cents, product_name = _ITEM_PRICING[frozenset(valid)]
 
     try:
         session = stripe.checkout.Session.create(
@@ -263,16 +302,16 @@ def create_checkout(req: CheckoutRequest):
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": "Passport/Visa Photo Download",
-                        "description": (
-                            "Compliant passport or visa photo — "
-                            "digital download (JPEG + PNG, 300 DPI, print sheet included)"
-                        ),
+                        "name": product_name,
+                        "description": "Compliant passport or visa photo — 350 DPI print-ready, JPEG + PNG",
                     },
-                    "unit_amount": 499,  # $4.99
+                    "unit_amount": price_cents,
                 },
                 "quantity": 1,
             }],
+            # Persist what was bought so verify-payment can gate downloads
+            # to the purchased items only.
+            metadata={"items": ",".join(valid)},
             success_url=req.success_url + "&session_id={CHECKOUT_SESSION_ID}",
             cancel_url=req.cancel_url,
         )
@@ -283,13 +322,18 @@ def create_checkout(req: CheckoutRequest):
 
 @app.get("/api/verify-payment")
 def verify_payment(session_id: str):
-    """Verify a Stripe checkout session was paid."""
+    """Verify a Stripe checkout session was paid and report purchased items."""
     if not stripe.api_key:
         raise HTTPException(500, "Stripe is not configured")
 
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        return {"paid": session.payment_status == "paid"}
+        items_str = (session.metadata or {}).get("items", "") if session.metadata else ""
+        items = [i for i in items_str.split(",") if i]
+        return {
+            "paid": session.payment_status == "paid",
+            "items": items,
+        }
     except stripe.error.StripeError as e:
         raise HTTPException(400, str(e))
 

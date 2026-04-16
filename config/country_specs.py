@@ -70,22 +70,29 @@ COUNTRY_SPECS = {
         "notes": "No glasses since 2016. No headgear except religious. White background only.",
     },
     "Canada": {
+        # Head 35-36mm on a 70mm-tall photo → head_pct ≈ 50-51% of height.
         "passport": {
             "width_mm": 50, "height_mm": 70,
             "bg_color": (255, 255, 255),
-            "head_pct": (31, 36),
+            "head_pct": (50, 51),
             "eye_line_pct": (56, 69),
+            "print_sheet": {
+                "orientation": "portrait",
+                "cols": 2, "rows": 2,
+                "separator_mm": 0.3,
+                "y_offset_mm": 4,
+            },
         },
         "visa": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
-            "head_pct": (31, 36),
+            "head_pct": (70, 80),
             "eye_line_pct": (56, 69),
         },
         "glasses": False,
         "headgear": False,
         "expression": "Neutral, mouth closed, eyes open",
-        "notes": "No glasses. Head 31-36mm in height. White or light-colored background.",
+        "notes": "Head 35-36mm on 50x70mm photo. White or light-colored background.",
     },
     "Brazil": {
         "passport": {
