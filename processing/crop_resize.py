@@ -114,6 +114,39 @@ def crop_and_center(pil_image, face_metrics, spec, dpi=DEFAULT_DPI):
     return set_dpi(cropped, dpi)
 
 
+def ensure_crown_clearance(image, bg_color, crown_mm, dpi=DEFAULT_DPI, tolerance=12):
+    """Shift the subject so the crown sits exactly crown_mm from the top.
+
+    Works on the final composited image (subject on solid background) by
+    scanning for the first row of non-background pixels.
+    """
+    w, h = image.size
+    target_px = mm_to_px(crown_mm, dpi)
+    arr = np.array(image, dtype=np.int16)
+    bg = np.array(bg_color, dtype=np.int16)
+
+    # Find first row where any pixel differs from bg by more than tolerance
+    diff = np.max(np.abs(arr - bg), axis=2)
+    row_has_subject = np.any(diff > tolerance, axis=1)
+    subject_rows = np.where(row_has_subject)[0]
+    if len(subject_rows) == 0:
+        return image
+
+    actual_top = int(subject_rows[0])
+    shift = target_px - actual_top
+    if abs(shift) < 2:
+        return image
+
+    canvas = Image.new("RGB", (w, h), tuple(bg_color))
+    canvas.paste(image, (0, shift))
+
+    # Fill any exposed strip at top or bottom with bg color (paste handles it,
+    # but crop to original size in case shift pushes content out of bounds)
+    canvas = canvas.crop((0, 0, w, h))
+    canvas.info["dpi"] = image.info.get("dpi", (dpi, dpi))
+    return canvas
+
+
 def set_dpi(image, dpi=DEFAULT_DPI):
     """Set the DPI metadata on a PIL Image for print-ready output.
 

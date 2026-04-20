@@ -3,7 +3,7 @@
 import streamlit as st
 from processing.face_detection import detect_face, detect_eyes, compute_face_metrics
 from processing.background import remove_background, replace_background
-from processing.crop_resize import crop_and_center
+from processing.crop_resize import crop_and_center, ensure_crown_clearance
 from processing.validation import validate_photo
 from utils.image_helpers import (
     bytes_to_cv2,
@@ -142,6 +142,8 @@ def _run_pipeline(image_bytes, spec, cache_key):
         new_metrics = face_metrics
 
     processed = crop_and_center(rgb_image, new_metrics, spec)
+    crown_mm = spec.get("crown_top_mm", 3)
+    processed = ensure_crown_clearance(processed, bg_color, crown_mm)
     progress.progress(95, text="Finalizing...")
 
     st.session_state[cache_key] = {

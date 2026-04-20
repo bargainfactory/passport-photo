@@ -18,7 +18,7 @@ from PIL import Image
 
 from processing.face_detection import detect_face, detect_eyes, compute_face_metrics
 from processing.background import remove_background, replace_background
-from processing.crop_resize import crop_and_center, mm_to_px
+from processing.crop_resize import crop_and_center, mm_to_px, ensure_crown_clearance
 from processing.validation import validate_photo
 from processing.print_sheet import create_print_sheet
 from processing.enhance import full_enhance_pipeline
@@ -206,6 +206,11 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
     enh_preview = replace_background(enh_rgba, bg_color)
     orig_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
     enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
+
+    # --- Step 6b: Enforce crown clearance on composited result ---
+    crown_mm = spec.get("crown_top_mm", 3)
+    orig_preview = ensure_crown_clearance(orig_preview, bg_color, crown_mm, dpi=PREVIEW_DPI)
+    enh_preview = ensure_crown_clearance(enh_preview, bg_color, crown_mm, dpi=PREVIEW_DPI)
 
     # --- Step 7: Validation ---
     enhanced_bgr = pil_to_cv2(enh_preview)
