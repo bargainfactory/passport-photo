@@ -1,5 +1,7 @@
 "use client";
 
+import { AlertTriangle, RotateCcw } from "lucide-react";
+
 export default function Error({
   error,
   reset,
@@ -8,17 +10,22 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <div style={{ padding: "2rem", fontFamily: "monospace" }}>
-      <h2>Application Error</h2>
-      <pre style={{ color: "red", whiteSpace: "pre-wrap", maxWidth: "80ch" }}>
-        {error.message}
-      </pre>
-      <pre style={{ color: "#666", whiteSpace: "pre-wrap", maxWidth: "80ch", fontSize: "12px" }}>
-        {error.stack}
-      </pre>
-      <button onClick={() => reset()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>
-        Try again
-      </button>
+    <div className="min-h-screen flex items-center justify-center p-8 bg-deep">
+      <div className="glass rounded-2xl p-8 max-w-lg text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20">
+          <AlertTriangle className="h-7 w-7 text-red-400" />
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">Application Error</h2>
+        <pre className="text-red-400/80 text-sm whitespace-pre-wrap max-w-[60ch] mx-auto mb-4 font-mono">
+          {error.message}
+        </pre>
+        <button
+          onClick={() => reset()}
+          className="inline-flex items-center gap-2 btn-glow rounded-lg px-5 py-2.5 text-sm font-bold text-white"
+        >
+          <RotateCcw className="h-4 w-4" /> Try again
+        </button>
+      </div>
     </div>
   );
 }

@@ -36,16 +36,16 @@ if "paid" not in st.session_state:
 # App Header
 st.markdown(
     """<div class="app-header">
-        <div class="header-icon">&#128247;</div>
+        <div class="header-icon">&#9878;</div>
         <h1 class="header-title">Passport &amp; Visa Photo Editor</h1>
         <p class="header-subtitle">
-            Create compliant passport and visa photos for 50+ countries.
-            Select your country, upload a selfie, and download print-ready photos in seconds.
+            Professional passport and visa photos for 50+ countries.
+            Upload once, get compliant, print-ready results in seconds.
         </p>
         <div class="header-badges">
-            <span class="badge">&#10003; 34 Countries</span>
-            <span class="badge">&#10003; AI Background Removal</span>
-            <span class="badge">&#10003; 300 DPI Print-Ready</span>
+            <span class="badge"><span class="badge-icon">&#127760;</span> 34 Countries</span>
+            <span class="badge"><span class="badge-icon">&#9881;</span> AI Processing</span>
+            <span class="badge"><span class="badge-icon">&#128438;</span> 300 DPI Output</span>
         </div>
     </div>""",
     unsafe_allow_html=True,
@@ -69,11 +69,10 @@ elif current_step == 3:
 st.markdown("---")
 st.markdown(
     """<div class="app-footer">
-        <p><strong>Passport &amp; Visa Photo Editor</strong></p>
-        <p>Compliant photos for 50+ countries &middot; 300 DPI print-ready
-        &middot; AI-powered background removal</p>
+        <p><span class="footer-brand">&#9878; Passport &amp; Visa Photo Editor</span></p>
+        <p>50+ countries &middot; 300 DPI print-ready &middot; AI-powered processing</p>
         <p style="font-size:0.75rem;color:#94A3B8;margin-top:0.5rem;">
-        Photos are processed locally and never stored on any server.
+        &#128274; Photos are processed locally and never stored on any server.
         &copy; 2026 Passport Photo Editor. All rights reserved.</p>
     </div>""",
     unsafe_allow_html=True,

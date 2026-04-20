@@ -34,16 +34,16 @@ def render():
     # Lighting tips
     st.markdown(
         """<div class="tip-card">
-        <b>Lighting tips for best results:</b><br>
+        <span class="tip-icon">&#128161;</span><b>Lighting tips for best results:</b><br>
         Face the light source directly (e.g., a window or soft lamp in front of you)
         so light falls evenly across your face. This minimizes shadows under eyes, nose,
         chin, or on one side.
         <b>Avoid side lighting, overhead lights, or direct flash</b> &mdash; these create
         harsh shadows that often cause rejection.<br><br>
-        <b>Pro tips:</b> Use natural daylight if possible. Add a white reflector
-        (paper, foam board, or a white towel) opposite the light source to fill shadows.
-        Stand 1&ndash;2 feet in front of a plain wall. Keep your face centered and look
-        straight at the camera.
+        <span class="tip-icon">&#9733;</span><b>Pro tips:</b> Use natural daylight if possible.
+        Add a white reflector (paper, foam board, or a white towel) opposite the light source
+        to fill shadows. Stand 1&ndash;2 feet in front of a plain wall. Keep your face centered
+        and look straight at the camera.
         </div>""",
         unsafe_allow_html=True,
     )
@@ -91,7 +91,7 @@ def render():
         # Checklist reminder
         st.markdown(
             """<div class="spec-box">
-            <b>Before continuing, check:</b><br>
+            <b>&#9745; Pre-flight checklist:</b><br>
             &#10003; Face is clearly visible and front-facing<br>
             &#10003; Even lighting with no harsh shadows<br>
             &#10003; Neutral expression, eyes open<br>

@@ -1,40 +1,39 @@
 "use client";
 
-import { Camera, Shield, Lock, Zap } from "lucide-react";
+import { Shield, Lock, Zap, Fingerprint } from "lucide-react";
 
 export default function Footer() {
   return (
-    <footer className="mt-20 border-t border-slate-200/60 bg-white/50">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
-        <div className="flex flex-col items-center gap-6">
-          {/* Logo */}
+    <footer className="mt-auto border-t border-[rgba(0,212,255,0.06)] bg-[rgba(5,10,20,0.6)]">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex flex-col items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-navy-600 to-navy-500">
-              <Camera className="h-4 w-4 text-white" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent-300 to-accent-500">
+              <Fingerprint className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-base font-bold text-navy-600 tracking-tight">
-              Photo<span className="text-teal-500">Pass</span>
+            <span className="text-sm font-bold tracking-tight">
+              <span className="text-white">Visage</span>
+              <span className="gradient-text">Pass</span>
             </span>
           </div>
 
-          {/* Trust signals */}
-          <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
+          <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
-              <Shield className="h-4 w-4 text-slate-400" />
+              <Shield className="h-3.5 w-3.5 text-accent-300/50" />
               Photos processed locally
             </div>
             <div className="flex items-center gap-1.5">
-              <Lock className="h-4 w-4 text-slate-400" />
+              <Lock className="h-3.5 w-3.5 text-accent-300/50" />
               Never stored on servers
             </div>
             <div className="flex items-center gap-1.5">
-              <Zap className="h-4 w-4 text-slate-400" />
+              <Zap className="h-3.5 w-3.5 text-accent-300/50" />
               AI-powered compliance
             </div>
           </div>
 
-          <p className="text-xs text-slate-400">
-            &copy; {new Date().getFullYear()} PhotoPass. All rights reserved.
+          <p className="text-[11px] text-slate-600">
+            &copy; {new Date().getFullYear()} VisagePass. All rights reserved.
           </p>
         </div>
       </div>

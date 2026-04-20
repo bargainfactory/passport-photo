@@ -113,18 +113,18 @@ def _render_payment(output_image, filename, fmt):
 
     st.markdown(
         f"""<div class="pay-card">
-            <h3>Unlock Your Download</h3>
-            <p style="color:#64748B;">Your passport photo is ready! Pay once to download.</p>
+            <h3>&#128274; Unlock Your Download</h3>
+            <p style="color:#64748B;">Your passport photo is ready. Pay once to download.</p>
             <div class="price-big">{PHOTO_PRICE_DISPLAY}</div>
             <div class="pay-features">
-                &#10003; Watermark-free high-resolution download<br>
-                &#10003; 300 DPI print-ready quality<br>
-                &#10003; Both JPEG and PNG formats included<br>
-                &#10003; 2&times;2 print sheet option included<br>
-                &#10003; One-time payment &mdash; no subscription
+                <span class="feat-check">&#10003;</span> Watermark-free high-resolution download<br>
+                <span class="feat-check">&#10003;</span> 300 DPI print-ready quality<br>
+                <span class="feat-check">&#10003;</span> Both JPEG and PNG formats included<br>
+                <span class="feat-check">&#10003;</span> 2&times;2 print sheet option included<br>
+                <span class="feat-check">&#10003;</span> One-time payment &mdash; no subscription
             </div>
             <p style="color:#94A3B8;font-size:0.8rem;">
-                Charged in {currency.upper()} via Stripe secure checkout.
+                &#128737; Charged in {currency.upper()} via Stripe secure checkout.
             </p>
         </div>""",
         unsafe_allow_html=True,
@@ -160,7 +160,7 @@ def _render_download(output_image, filename, fmt):
     """Render the download buttons."""
     st.markdown(
         '<div class="dl-section">'
-        "<h3>Your Photo is Ready!</h3>"
+        "<h3>&#10003; Your Photo is Ready</h3>"
         "<p>Download your compliant passport/visa photo below.</p>"
         "</div>",
         unsafe_allow_html=True,

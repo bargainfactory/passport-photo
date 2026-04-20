@@ -130,7 +130,7 @@ def _render_spec_info(spec, country, doc_type):
     px_h = int(round(spec["height_mm"] * 300 / 25.4))
 
     html = f"""<div class="spec-box">
-        <div class="spec-title">{flag} {country} &mdash; {doc_type} Photo Requirements</div>
+        <div class="spec-title">&#128203; {flag} {country} &mdash; {doc_type} Photo Requirements</div>
         <b>Size:</b> {spec['width_mm']} &times; {spec['height_mm']} mm
         ({px_w} &times; {px_h} px @ 300 DPI)<br>
         <b>Background:</b> {swatch} RGB({bg[0]}, {bg[1]}, {bg[2]})<br>

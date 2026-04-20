@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "PhotoPass — Professional Passport & Visa Photos",
+  title: "VisagePass — Professional Passport & Visa Photos",
   description:
     "Create compliant passport and visa photos for 50+ countries. AI-powered background removal, face detection, and 300 DPI print-ready output.",
   keywords:
@@ -23,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="font-sans text-navy-600 antialiased">{children}</body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }
