@@ -279,7 +279,7 @@ class CheckoutRequest(BaseModel):
 _ITEM_PRICING = {
     frozenset({"digital"}): (499, "Passport Photo — Digital Download"),
     frozenset({"sheet"}): (499, "Passport Photo — 4x6\" Print Sheet"),
-    frozenset({"digital", "sheet"}): (799, "Passport Photo — Digital + 4x6\" Print Sheet"),
+    frozenset({"digital", "sheet"}): (899, "Passport Photo — Bundled Deal (Digital + 4x6\" Print Sheet)"),
 }
 
 

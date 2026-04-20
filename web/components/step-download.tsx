@@ -45,16 +45,21 @@ export default function StepDownload({
   const spec = getSpec(country, docType);
   const [format, setFormat] = useState<"jpeg" | "png">("jpeg");
   const [layout, setLayout] = useState<"single" | "sheet">("single");
-  const [selection, setSelection] = useState<{ digital: boolean; sheet: boolean }>({ digital: true, sheet: false });
+  type Tier = "digital" | "sheet" | "bundle";
+  const [selectedTier, setSelectedTier] = useState<Tier>("digital");
   const [purchased, setPurchased] = useState<{ digital: boolean; sheet: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState<"digital" | "sheet" | null>(null);
 
+  const selection = useMemo(() => ({
+    digital: selectedTier === "digital" || selectedTier === "bundle",
+    sheet: selectedTier === "sheet" || selectedTier === "bundle",
+  }), [selectedTier]);
+
   const priceCents = useMemo(() => {
-    if (selection.digital && selection.sheet) return 799;
-    if (selection.digital || selection.sheet) return 499;
-    return 0;
-  }, [selection]);
+    if (selectedTier === "bundle") return 899;
+    return 499;
+  }, [selectedTier]);
   const priceStr = `$${(priceCents / 100).toFixed(2)}`;
 
   const [editedSheetPreviewUrl, setEditedSheetPreviewUrl] = useState<string | null>(null);
@@ -123,7 +128,6 @@ export default function StepDownload({
   }, [purchased]);
 
   const handlePayment = useCallback(async () => {
-    if (priceCents === 0) return;
     setLoading(true);
     try {
       const items: string[] = [];
@@ -337,67 +341,72 @@ export default function StepDownload({
               </div>
 
               <div className="space-y-2 mb-4">
-                <button
-                  type="button"
-                  onClick={() => setSelection((s) => ({ ...s, digital: !s.digital }))}
-                  className={cn(
-                    "w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all",
-                    selection.digital
-                      ? "border-accent-300/25 bg-accent-50"
-                      : "border-[rgba(0,212,255,0.08)] bg-deep-100 hover:border-[rgba(0,212,255,0.15)]",
-                  )}
-                >
-                  <div className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded border flex-shrink-0",
-                    selection.digital ? "bg-gradient-to-br from-accent-300 to-accent-500 border-accent-300" : "border-slate-600 bg-deep-200",
-                  )}>
-                    {selection.digital && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-bold text-white">Digital Download</span>
-                      <span className="text-sm font-bold text-accent-300">$4.99</span>
+                {([
+                  {
+                    tier: "digital" as Tier,
+                    title: "Digital Download",
+                    price: "$4.99",
+                    desc: `${spec.width_mm}\u00d7${spec.height_mm}mm JPEG${spec.max_file_size_kb ? ` \u00b7 \u2264${spec.max_file_size_kb} KB` : ""} \u00b7 online submission`,
+                    icon: FileImage,
+                    badge: null,
+                  },
+                  {
+                    tier: "sheet" as Tier,
+                    title: "4\u00d76\" Print Sheet",
+                    price: "$4.99",
+                    desc: "6 photos on one sheet \u00b7 home or lab printing",
+                    icon: Printer,
+                    badge: null,
+                  },
+                  {
+                    tier: "bundle" as Tier,
+                    title: "Bundled Deal",
+                    price: "$8.99",
+                    desc: "Digital download + 4\u00d76\" print sheet \u00b7 best value",
+                    icon: Sparkles,
+                    badge: "Save $0.99",
+                  },
+                ] as const).map(({ tier, title, price, desc, icon: Icon, badge }) => (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => setSelectedTier(tier)}
+                    className={cn(
+                      "w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all relative",
+                      selectedTier === tier
+                        ? tier === "bundle"
+                          ? "border-accent-300/40 bg-accent-50 ring-1 ring-accent-300/15"
+                          : "border-accent-300/25 bg-accent-50"
+                        : "border-[rgba(0,212,255,0.08)] bg-deep-100 hover:border-[rgba(0,212,255,0.15)]",
+                    )}
+                  >
+                    <div className={cn(
+                      "flex h-5 w-5 items-center justify-center rounded-full border flex-shrink-0",
+                      selectedTier === tier
+                        ? "bg-gradient-to-br from-accent-300 to-accent-500 border-accent-300"
+                        : "border-slate-600 bg-deep-200",
+                    )}>
+                      {selectedTier === tier && (
+                        <div className="h-2 w-2 rounded-full bg-white" />
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      {spec.width_mm}&times;{spec.height_mm}mm JPEG
-                      {spec.max_file_size_kb ? ` \u00b7 \u2264${spec.max_file_size_kb} KB` : ""}
-                      {" \u00b7 online submission"}
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelection((s) => ({ ...s, sheet: !s.sheet }))}
-                  className={cn(
-                    "w-full flex items-center gap-3 rounded-lg border p-3 text-left transition-all",
-                    selection.sheet
-                      ? "border-accent-300/25 bg-accent-50"
-                      : "border-[rgba(0,212,255,0.08)] bg-deep-100 hover:border-[rgba(0,212,255,0.15)]",
-                  )}
-                >
-                  <div className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded border flex-shrink-0",
-                    selection.sheet ? "bg-gradient-to-br from-accent-300 to-accent-500 border-accent-300" : "border-slate-600 bg-deep-200",
-                  )}>
-                    {selection.sheet && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-bold text-white">4&times;6&quot; Print Sheet</span>
-                      <span className="text-sm font-bold text-accent-300">$4.99</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <Icon className="h-3.5 w-3.5 text-accent-300/70" />
+                          {title}
+                        </span>
+                        <span className="text-sm font-bold text-accent-300">{price}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{desc}</p>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      6 photos on one sheet &middot; home or lab printing
-                    </p>
-                  </div>
-                </button>
-
-                {selection.digital && selection.sheet && (
-                  <div className="rounded-lg bg-accent-300/5 border border-accent-300/10 px-3 py-1.5 text-[11px] font-semibold text-accent-300 text-center">
-                    Bundle &mdash; save $2.00
-                  </div>
-                )}
+                    {badge && (
+                      <span className="absolute -top-2 right-3 rounded-full bg-gradient-to-r from-accent-300 to-accent-500 px-2 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider shadow-glow-sm">
+                        {badge}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
 
               <div className="text-center mb-4">
@@ -406,21 +415,19 @@ export default function StepDownload({
               </div>
 
               <motion.button
-                whileHover={{ scale: priceCents > 0 ? 1.02 : 1 }}
-                whileTap={{ scale: priceCents > 0 ? 0.98 : 1 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={handlePayment}
-                disabled={loading || priceCents === 0}
+                disabled={loading}
                 className={cn(
                   "w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white transition-all",
-                  (loading || priceCents === 0)
+                  loading
                     ? "bg-deep-200 text-slate-600 cursor-not-allowed"
                     : "btn-glow"
                 )}
               >
                 {loading ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting&hellip;</>
-                ) : priceCents === 0 ? (
-                  <><CreditCard className="h-4 w-4" /> Select at least one item</>
                 ) : (
                   <><CreditCard className="h-4 w-4" /> Pay {priceStr} &amp; Download</>
                 )}
