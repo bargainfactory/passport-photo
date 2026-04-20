@@ -1,6 +1,7 @@
 """SEO meta tags, OpenGraph, Twitter Card, and JSON-LD schema injection."""
 
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 
 
@@ -50,7 +51,11 @@ def inject_meta_tags():
         f'<meta name="twitter:card" content="summary">'
         f'<meta name="twitter:title" content="{title}">'
         f'<meta name="twitter:description" content="{description}">'
-        f'<script type="application/ld+json">{json_ld}</script>'
     )
 
     st.markdown(meta_html, unsafe_allow_html=True)
+    components.html(
+        f'<script type="application/ld+json">{json_ld}</script>',
+        height=0,
+        width=0,
+    )
