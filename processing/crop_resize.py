@@ -73,6 +73,14 @@ def crop_and_center(pil_image, face_metrics, spec, dpi=DEFAULT_DPI):
     crop_left = cx - out_w_px // 2
     crop_top = scaled_eye_y - int(target_eye_y)
 
+    # Enforce crown clearance: the space between the top of the output
+    # and the crown of the head must equal crown_top_mm (default 3mm,
+    # Canada uses 10mm). This overrides the eye-line-based position.
+    crown_top_mm = spec.get("crown_top_mm", 3)
+    crown_top_px = mm_to_px(crown_top_mm, dpi)
+    scaled_head_top_y = int(face_metrics["head_top_y"] * scale)
+    crop_top = scaled_head_top_y - crown_top_px
+
     # Pad with background color whenever the crop would extend past the
     # resized image bounds. This preserves correct head size & eye-line
     # placement instead of clipping the hair or shoulders when the source

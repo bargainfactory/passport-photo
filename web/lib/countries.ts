@@ -27,6 +27,8 @@ export interface PhotoSpec {
    * When undefined, the download is unconstrained.
    */
   max_file_size_kb?: number;
+  /** Space between top of photo and crown of head, in mm. Default 3. */
+  crown_top_mm?: number;
   /**
    * Optional per-spec print-sheet layout. When undefined, the default
    * 3×2 landscape sheet is used. Set for countries whose passport size
@@ -70,6 +72,7 @@ export const COUNTRIES: CountrySpec[] = [
       bg_color: [255, 255, 255],
       head_pct: [50, 51],
       eye_line_pct: [56, 69],
+      crown_top_mm: 10,
       print_sheet: { orientation: "portrait", cols: 2, rows: 2, separator_mm: 0.3, y_offset_mm: 4 },
     },
     visa: {
@@ -77,6 +80,7 @@ export const COUNTRIES: CountrySpec[] = [
       bg_color: [255, 255, 255],
       head_pct: [70, 80],
       eye_line_pct: [56, 69],
+      crown_top_mm: 10,
     },
     glasses: false, headgear: false,
     expression: "Neutral, mouth closed, eyes open",

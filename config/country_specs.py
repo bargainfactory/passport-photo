@@ -76,6 +76,7 @@ COUNTRY_SPECS = {
             "bg_color": (255, 255, 255),
             "head_pct": (50, 51),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 10,
             "print_sheet": {
                 "orientation": "portrait",
                 "cols": 2, "rows": 2,
@@ -88,6 +89,7 @@ COUNTRY_SPECS = {
             "bg_color": (255, 255, 255),
             "head_pct": (70, 80),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 10,
         },
         "glasses": False,
         "headgear": False,
