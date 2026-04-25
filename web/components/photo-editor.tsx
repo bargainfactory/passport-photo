@@ -218,7 +218,7 @@ export default function PhotoEditor({
                 : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
             )}
           >
-            <Camera className="h-3 w-3" /> Original
+            <Camera className="h-3 w-3" /> Cropped Only
           </button>
         </div>
       </div>

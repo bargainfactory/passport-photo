@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 import Header from "@/components/header";
 import Stepper from "@/components/stepper";
@@ -9,12 +9,16 @@ import StepUpload from "@/components/step-upload";
 import StepPreview, { type ProcessedBundle } from "@/components/step-preview";
 import StepDownload from "@/components/step-download";
 import Footer from "@/components/footer";
-import { type CountrySpec } from "@/lib/countries";
+import { type CountrySpec, COUNTRIES } from "@/lib/countries";
 import { type Edits, type Variant, DEFAULT_EDITS } from "@/components/photo-editor";
 
 function Particles() {
-  const dots = useMemo(
-    () =>
+  const [dots, setDots] = useState<
+    { id: number; left: string; top: string; duration: string; delay: string; driftX: string; driftY: string; size: number }[]
+  >([]);
+
+  useEffect(() => {
+    setDots(
       Array.from({ length: 30 }, (_, i) => ({
         id: i,
         left: `${Math.random() * 100}%`,
@@ -25,8 +29,8 @@ function Particles() {
         driftY: `${-30 - Math.random() * 60}px`,
         size: 1 + Math.random() * 2,
       })),
-    [],
-  );
+    );
+  }, []);
 
   return (
     <div className="particles">
@@ -53,7 +57,9 @@ function Particles() {
 
 export default function Home() {
   const [step, setStep] = useState(0);
-  const [country, setCountry] = useState<CountrySpec | null>(null);
+  const [country, setCountry] = useState<CountrySpec | null>(
+    COUNTRIES.find((c) => c.name === "United States") ?? null,
+  );
   const [docType, setDocType] = useState<"passport" | "visa">("passport");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [bundle, setBundle] = useState<ProcessedBundle | null>(null);
@@ -75,6 +81,7 @@ export default function Home() {
             {step === 0 && (
               <StepCountry
                 key="country"
+                defaultCountry={country}
                 onNext={(c, dt) => {
                   setCountry(c);
                   setDocType(dt);

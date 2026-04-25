@@ -311,11 +311,13 @@ export default function StepPreview({
               <div className="rounded-xl p-4 border border-accent-300/20 bg-gradient-to-br from-deep-100 to-deep-50 glow-border-active">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[11px] font-bold text-accent-300 uppercase tracking-wider">
-                    {variant === "enhanced" ? "AI Enhanced" : "Original"}
+                    {variant === "enhanced" ? "AI Enhanced" : "Cropped Only"}
                   </p>
-                  <span className="flex items-center gap-1 rounded-full bg-accent-300/10 border border-accent-300/15 px-2 py-0.5 text-[10px] font-semibold text-accent-300">
-                    <Sparkles className="h-2.5 w-2.5" /> Studio Quality
-                  </span>
+                  {variant === "enhanced" && (
+                    <span className="flex items-center gap-1 rounded-full bg-accent-300/10 border border-accent-300/15 px-2 py-0.5 text-[10px] font-semibold text-accent-300">
+                      <Sparkles className="h-2.5 w-2.5" /> Studio Quality
+                    </span>
+                  )}
                 </div>
                 <div className="rounded-lg overflow-hidden bg-deep-200 flex items-center justify-center" style={{ minHeight: "10rem" }}>
                   {bundle ? (
@@ -335,8 +337,36 @@ export default function StepPreview({
               </div>
             </div>
 
+            {/* Variant toggle */}
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => { onVariantChange("enhanced"); onEditedOverrideChange(null); }}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-4 py-2.5 text-xs font-semibold transition-all",
+                  variant === "enhanced"
+                    ? "border-accent-300/30 bg-accent-50 text-accent-300 shadow-glow-sm"
+                    : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
+                )}
+              >
+                <Sparkles className="h-3.5 w-3.5" /> AI Enhanced
+              </button>
+              <button
+                type="button"
+                onClick={() => { onVariantChange("original"); onEditedOverrideChange(null); }}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-4 py-2.5 text-xs font-semibold transition-all",
+                  variant === "original"
+                    ? "border-accent-300/30 bg-accent-50 text-accent-300 shadow-glow-sm"
+                    : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
+                )}
+              >
+                <Crop className="h-3.5 w-3.5" /> Cropped Only
+              </button>
+            </div>
+
             {/* Enhancement pills */}
-            <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+            <div className={cn("flex flex-wrap items-center justify-center gap-2 mb-4", variant === "original" && "opacity-40")}>
               {[
                 { icon: Sun, text: "Lighting corrected" },
                 { icon: Palette, text: "Background replaced" },
@@ -411,7 +441,7 @@ export default function StepPreview({
                       previewUrl={
                         editedOverrideUrl ?? (variant === "enhanced" ? bundle.previewUrl : bundle.originalPreviewUrl)
                       }
-                      advancedSrcUrl={bundle.previewUrl}
+                      advancedSrcUrl={variant === "enhanced" ? bundle.previewUrl : bundle.originalPreviewUrl}
                       bgColor={spec.bg_color as [number, number, number]}
                       onAdvancedApply={(url) => onEditedOverrideChange(url)}
                       compact

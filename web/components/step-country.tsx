@@ -11,12 +11,13 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   onNext: (country: CountrySpec, docType: "passport" | "visa") => void;
+  defaultCountry?: CountrySpec | null;
 }
 
-export default function StepCountry({ onNext }: Props) {
+export default function StepCountry({ onNext, defaultCountry }: Props) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<CountrySpec | null>(null);
+  const [selected, setSelected] = useState<CountrySpec | null>(defaultCountry ?? null);
   const [docType, setDocType] = useState<"passport" | "visa">("passport");
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);

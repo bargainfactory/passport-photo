@@ -197,7 +197,7 @@ export default function StepDownload({
                 {layout === "sheet" ? (
                   <>4&times;6&quot; print sheet &middot; 6 photos &middot; 350 DPI &middot; {format.toUpperCase()}</>
                 ) : (
-                  <>{spec.width_mm}&times;{spec.height_mm}mm &middot; 350 DPI &middot; {format.toUpperCase()} &middot; {variant === "enhanced" ? "AI-enhanced" : "Original"}</>
+                  <>{spec.width_mm}&times;{spec.height_mm}mm &middot; 350 DPI &middot; {format.toUpperCase()} &middot; {variant === "enhanced" ? "AI-enhanced" : "Cropped only"}</>
                 )}
               </p>
             </div>
@@ -258,7 +258,7 @@ export default function StepDownload({
               edits={edits}
               onEditsChange={onEditsChange}
               previewUrl={displayUrl}
-              advancedSrcUrl={bundle.previewUrl}
+              advancedSrcUrl={variant === "enhanced" ? bundle.previewUrl : bundle.originalPreviewUrl}
               bgColor={spec.bg_color as [number, number, number]}
               onAdvancedApply={(url) => onEditedOverrideChange(url)}
               compact
