@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Sparkles, Camera, RotateCcw, Wand2, ZoomIn, Eraser } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 import AdvancedToolsModal, { type ToolMode } from "@/components/advanced-tools-modal";
 
 export type Variant = "enhanced" | "original";
@@ -20,6 +21,50 @@ export const DEFAULT_EDITS: Edits = {
   saturation: 1,
   warmth: 0,
 };
+
+export interface CropAdjust {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export const DEFAULT_CROP: CropAdjust = { x: 0, y: 0, zoom: 1 };
+
+export function cropToCssTransform(c: CropAdjust): string {
+  if (c.x === 0 && c.y === 0 && c.zoom === 1) return "none";
+  return `scale(${c.zoom}) translate(${c.x}%, ${c.y}%)`;
+}
+
+export async function bakeCropToDataUrl(
+  srcDataUrl: string,
+  crop: CropAdjust,
+  bgColor: [number, number, number] = [255, 255, 255],
+  format: "jpeg" | "png" = "jpeg",
+): Promise<string> {
+  if (crop.x === 0 && crop.y === 0 && crop.zoom === 1) return srcDataUrl;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (!srcDataUrl.startsWith("data:")) img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("canvas unsupported"));
+      ctx.fillStyle = `rgb(${bgColor[0]},${bgColor[1]},${bgColor[2]})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      ctx.translate(cx, cy);
+      ctx.scale(crop.zoom, crop.zoom);
+      ctx.translate(-cx + (crop.x / 100) * canvas.width, -cy + (crop.y / 100) * canvas.height);
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL(format === "png" ? "image/png" : "image/jpeg", 0.95));
+    };
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = srcDataUrl;
+  });
+}
 
 export function editsToCssFilter(e: Edits): string {
   return [
@@ -177,6 +222,7 @@ export default function PhotoEditor({
   variant, onVariantChange, edits, onEditsChange,
   previewUrl, advancedSrcUrl, compact = false, bgColor, onAdvancedApply,
 }: Props) {
+  const { t } = useTranslation();
   const filter = useMemo(() => editsToCssFilter(edits), [edits]);
   const [activeMode, setActiveMode] = useState<ToolMode | null>(null);
   const update = (patch: Partial<Edits>) => onEditsChange({ ...edits, ...patch });
@@ -186,13 +232,13 @@ export default function PhotoEditor({
     <div className="space-y-3">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Version</label>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{t("editor.version")}</label>
           <button
             onClick={reset}
             className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-accent-300 transition-colors"
             type="button"
           >
-            <RotateCcw className="h-3 w-3" /> Reset
+            <RotateCcw className="h-3 w-3" /> {t("editor.reset")}
           </button>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -206,7 +252,7 @@ export default function PhotoEditor({
                 : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
             )}
           >
-            <Sparkles className="h-3 w-3" /> AI Enhanced
+            <Sparkles className="h-3 w-3" /> {t("editor.aiEnhanced")}
           </button>
           <button
             type="button"
@@ -218,7 +264,7 @@ export default function PhotoEditor({
                 : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
             )}
           >
-            <Camera className="h-3 w-3" /> Cropped Only
+            <Camera className="h-3 w-3" /> {t("editor.croppedOnly")}
           </button>
         </div>
       </div>
@@ -230,19 +276,19 @@ export default function PhotoEditor({
       )}
 
       <div className="space-y-2.5">
-        <Slider label="Brightness" value={edits.brightness} min={0.6} max={1.4} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ brightness: v })} />
-        <Slider label="Contrast" value={edits.contrast} min={0.6} max={1.4} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ contrast: v })} />
-        <Slider label="Saturation" value={edits.saturation} min={0.5} max={1.5} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ saturation: v })} />
-        <Slider label="Warmth" value={edits.warmth} min={-30} max={30} step={1} formatValue={(v) => `${v > 0 ? "+" : ""}${Math.round(v)}`} onChange={(v) => update({ warmth: v })} />
+        <Slider label={t("editor.brightness")} value={edits.brightness} min={0.6} max={1.4} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ brightness: v })} />
+        <Slider label={t("editor.contrast")} value={edits.contrast} min={0.6} max={1.4} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ contrast: v })} />
+        <Slider label={t("editor.saturation")} value={edits.saturation} min={0.5} max={1.5} step={0.01} formatValue={(v) => `${Math.round((v - 1) * 100)}`} onChange={(v) => update({ saturation: v })} />
+        <Slider label={t("editor.warmth")} value={edits.warmth} min={-30} max={30} step={1} formatValue={(v) => `${v > 0 ? "+" : ""}${Math.round(v)}`} onChange={(v) => update({ warmth: v })} />
       </div>
 
       {onAdvancedApply && (
         <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Advanced tools</label>
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">{t("editor.advancedTools")}</label>
           <div className="grid grid-cols-3 gap-2">
-            <ToolLauncher icon={ZoomIn} label="Magnify" onClick={() => setActiveMode("magnify")} />
-            <ToolLauncher icon={Eraser} label="Erase" onClick={() => setActiveMode("erase")} />
-            <ToolLauncher icon={Wand2} label="Fill" onClick={() => setActiveMode("fill")} />
+            <ToolLauncher icon={ZoomIn} label={t("editor.magnify")} onClick={() => setActiveMode("magnify")} />
+            <ToolLauncher icon={Eraser} label={t("editor.erase")} onClick={() => setActiveMode("erase")} />
+            <ToolLauncher icon={Wand2} label={t("editor.fill")} onClick={() => setActiveMode("fill")} />
           </div>
         </div>
       )}

@@ -171,10 +171,13 @@ def _gray_world_wb(bgr_image):
 
 
 def smooth_skin(bgr_image, face_rect):
-    """Subtle skin smoothing that preserves natural texture.
+    """Light airbrush — even out skin tone while keeping moles and scars.
 
-    Uses a bilateral filter (edge-preserving) only on detected skin-tone
-    pixels within the face region. Blended at 35% to avoid plastic look.
+    Uses an edge-preserving bilateral filter at parameters tuned to
+    smooth low-frequency skin tone variation (blotches, redness, fine
+    lines) while leaving high-contrast features (moles, scars,
+    eyebrows, eye details) intact. Two passes give a soft airbrush
+    finish without the plastic look of single heavy smoothing.
 
     Args:
         bgr_image: OpenCV BGR numpy array
@@ -189,35 +192,47 @@ def smooth_skin(bgr_image, face_rect):
     x, y, w, h = face_rect
     result = bgr_image.copy()
 
-    margin = int(w * 0.15)
-    y1 = max(0, y - margin)
-    y2 = min(bgr_image.shape[0], y + h + margin)
-    x1 = max(0, x - margin)
-    x2 = min(bgr_image.shape[1], x + w + margin)
+    # Generous region — face + neck + forehead so the airbrush carries
+    # naturally through the chin/jaw line into the neck.
+    margin_x = int(w * 0.30)
+    margin_top = int(h * 0.30)
+    margin_bot = int(h * 0.55)
+    y1 = max(0, y - margin_top)
+    y2 = min(bgr_image.shape[0], y + h + margin_bot)
+    x1 = max(0, x - margin_x)
+    x2 = min(bgr_image.shape[1], x + w + margin_x)
 
     face = bgr_image[y1:y2, x1:x2]
     if face.size == 0:
         return bgr_image
 
-    # Detect skin-tone pixels via HSV
+    # Two-pass bilateral. sigmaColor=38 sits above typical skin tone
+    # noise (~10-25 LAB units) but well below the contrast of moles,
+    # scars, eyebrows, lashes — those features have ΔL > 50 and survive.
+    smoothed = cv2.bilateralFilter(face, d=9, sigmaColor=38, sigmaSpace=18)
+    smoothed = cv2.bilateralFilter(smoothed, d=9, sigmaColor=38, sigmaSpace=18)
+
+    # Skin-tone detection (slightly broader range to catch tanned + neck).
     hsv = cv2.cvtColor(face, cv2.COLOR_BGR2HSV)
     skin_mask = cv2.inRange(
         hsv,
-        np.array([0, 20, 70], dtype=np.uint8),
+        np.array([0, 18, 55], dtype=np.uint8),
         np.array([35, 255, 255], dtype=np.uint8),
     )
-    # Expand slightly to include nearby similar pixels
-    skin_mask = cv2.dilate(skin_mask, np.ones((3, 3), np.uint8), iterations=1)
+    skin_mask = cv2.dilate(skin_mask, np.ones((5, 5), np.uint8), iterations=1)
+    # Soft-edge mask so the smoothed region blends naturally into the
+    # surrounding skin without a visible boundary.
+    skin_mask = cv2.GaussianBlur(skin_mask, (21, 21), 0).astype(np.float32) / 255.0
+    skin_mask_3ch = np.stack([skin_mask] * 3, axis=-1)
 
-    # Bilateral filter — preserves edges (pores, features) while smoothing
-    smoothed = cv2.bilateralFilter(face, d=7, sigmaColor=25, sigmaSpace=25)
-
-    # Blend only on skin pixels, 25% smoothed / 75% original — keep texture
-    skin_3ch = np.stack([skin_mask] * 3, axis=-1) > 0
-    blended = face.copy()
-    blended[skin_3ch] = (
-        face.astype(np.float32) * 0.75 + smoothed.astype(np.float32) * 0.25
-    )[skin_3ch].astype(np.uint8)
+    # 60% airbrush / 40% original on skin — visible smoothing without
+    # erasing pores entirely. Bilateral keeps moles + scars sharp at
+    # this strength because their ΔL exceeds sigmaColor.
+    blend = skin_mask_3ch * 0.60
+    blended = (
+        smoothed.astype(np.float32) * blend
+        + face.astype(np.float32) * (1.0 - blend)
+    ).clip(0, 255).astype(np.uint8)
 
     result[y1:y2, x1:x2] = blended
     return result

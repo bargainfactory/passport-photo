@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
+import { useTranslation } from "@/lib/i18n";
 import FaceGuide from "@/components/face-guide";
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function StepUpload({ country, docType, onNext, onBack }: Props) {
+  const { t } = useTranslation();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageSource, setImageSource] = useState<"file" | "webcam" | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -76,7 +78,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
         videoRef.current.onloadeddata = () => setWebcamReady(true);
       }
     } catch {
-      alert("Could not access webcam. Please allow camera access.");
+      alert(t("upload.webcamError"));
       setShowWebcam(false);
     }
   };
@@ -125,7 +127,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
         onClick={onBack}
         className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-accent-300 transition-colors mb-3"
       >
-        <ArrowLeft className="h-4 w-4" /> Back
+        <ArrowLeft className="h-4 w-4" /> {t("upload.back")}
       </button>
 
       {/* Country badge */}
@@ -143,8 +145,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               <Lightbulb className="h-4 w-4 text-amber-400" />
             </div>
             <div className="text-xs text-slate-400 leading-relaxed">
-              <strong className="text-amber-300">Lighting:</strong> Face a window or soft lamp
-              directly so light falls evenly. Avoid side lighting or flash.
+              <strong className="text-amber-300">{t("upload.lightingTip")}</strong> {t("upload.lightingTipDesc")}
             </div>
           </div>
         </div>
@@ -154,8 +155,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               <Square className="h-4 w-4 text-accent-300" />
             </div>
             <div className="text-xs text-slate-400 leading-relaxed">
-              <strong className="text-accent-300">Background:</strong> Stand in front of a plain
-              wall. Our AI will cleanly separate you from the scene.
+              <strong className="text-accent-300">{t("upload.bgTip")}</strong> {t("upload.bgTipDesc")}
             </div>
           </div>
         </div>
@@ -179,15 +179,15 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
 
           <div className="mt-4 rounded-lg bg-deep-200/50 border border-[rgba(0,212,255,0.06)] p-3 text-left max-w-sm mx-auto">
             <p className="text-xs font-semibold text-white/80 mb-1.5 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-accent-300" /> Pre-flight check
+              <CheckCircle2 className="h-3.5 w-3.5 text-accent-300" /> {t("upload.preflightCheck")}
             </p>
             {[
-              "Face clearly visible and front-facing",
-              "Even lighting, no harsh shadows",
-              "Neutral expression, eyes open",
-              "Background (AI will replace it)",
-            ].map((item) => (
-              <div key={item} className="flex items-start gap-2 text-xs text-slate-400 py-0.5">
+              t("upload.checkFace"),
+              t("upload.checkLighting"),
+              t("upload.checkExpression"),
+              t("upload.checkBackground"),
+            ].map((item, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs text-slate-400 py-0.5">
                 <span className="text-accent-300 mt-0.5">&#10003;</span>
                 {item}
               </div>
@@ -202,7 +202,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
                 onClick={retakeSelfie}
                 className="btn-ghost inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-slate-300"
               >
-                <RotateCcw className="h-4 w-4" /> Retake
+                <RotateCcw className="h-4 w-4" /> {t("upload.retake")}
               </motion.button>
             )}
             <motion.button
@@ -211,7 +211,7 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               onClick={() => onNext(imageUrl)}
               className="btn-glow inline-flex items-center gap-2 rounded-xl px-8 py-3 text-sm font-bold text-white"
             >
-              Process Photo <ArrowRight className="h-4 w-4" />
+              {t("upload.processPhoto")} <ArrowRight className="h-4 w-4" />
             </motion.button>
           </div>
         </div>
@@ -261,11 +261,11 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               onClick={stopWebcam}
               className="btn-ghost rounded-lg px-5 py-2.5 text-sm font-medium text-slate-400"
             >
-              Cancel
+              {t("upload.cancel")}
             </button>
           </div>
           <p className="text-[11px] text-slate-600 mt-2">
-            Position your face inside the outline, then tap capture
+            {t("upload.positionFace")}
           </p>
         </div>
       ) : (
@@ -293,10 +293,10 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               <Upload className="h-6 w-6 text-accent-300" />
             </div>
             <p className="text-sm font-bold text-white mb-1">
-              Drop your photo here
+              {t("upload.dropPhoto")}
             </p>
             <p className="text-xs text-slate-500">
-              or click to browse &middot; JPG, PNG
+              {t("upload.orBrowse")}
             </p>
           </div>
 
@@ -308,10 +308,10 @@ export default function StepUpload({ country, docType, onNext, onBack }: Props) 
               <Camera className="h-6 w-6 text-accent-400" />
             </div>
             <p className="text-sm font-bold text-white mb-1">
-              Take a selfie
+              {t("upload.takeSelfie")}
             </p>
             <p className="text-xs text-slate-500">
-              Use your webcam or phone camera
+              {t("upload.useWebcam")}
             </p>
           </button>
         </div>

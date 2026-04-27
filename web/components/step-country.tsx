@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { COUNTRIES, getSpec, mmToPx, type CountrySpec } from "@/lib/countries";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface Props {
   onNext: (country: CountrySpec, docType: "passport" | "visa") => void;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function StepCountry({ onNext, defaultCountry }: Props) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<CountrySpec | null>(defaultCountry ?? null);
@@ -75,21 +77,20 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
             <Fingerprint className="h-7 w-7 text-white" />
           </motion.div>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-3 tracking-tight text-balance">
-            Professional Passport &amp; Visa
+            {t("country.heroTitle")}
             <br />
-            <span className="gradient-text-white">Photos in Seconds</span>
+            <span className="gradient-text-white">{t("country.heroTitleHighlight")}</span>
           </h1>
           <p className="text-slate-400 text-sm sm:text-base max-w-xl mx-auto mb-6 leading-relaxed">
-            AI-powered compliance for 34+ countries. Upload a selfie, get a
-            government-ready photo instantly.
+            {t("country.heroSubtitle")}
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-2.5">
             {[
-              { icon: Globe, text: "34+ Countries" },
-              { icon: Sparkles, text: "AI Background Removal" },
-              { icon: Printer, text: "300 DPI Print-Ready" },
-              { icon: Zap, text: "Instant Processing" },
+              { icon: Globe, text: t("country.feature.countries") },
+              { icon: Sparkles, text: t("country.feature.bgRemoval") },
+              { icon: Printer, text: t("country.feature.printReady") },
+              { icon: Zap, text: t("country.feature.instant") },
             ].map(({ icon: Icon, text }) => (
               <div
                 key={text}
@@ -109,7 +110,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
         <div className="lg:col-span-2 space-y-4">
           <div className="glass rounded-xl p-5">
             <h2 className="text-base font-bold text-white mb-3">
-              Choose Your Country
+              {t("country.chooseCountry")}
             </h2>
 
             {/* Searchable dropdown */}
@@ -147,7 +148,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                       value={search}
                       onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
                       onFocus={() => setOpen(true)}
-                      placeholder="Search countries..."
+                      placeholder={t("country.searchPlaceholder")}
                       className="flex-1 text-sm outline-none bg-transparent placeholder:text-slate-600 text-white"
                     />
                     <ChevronDown className={cn("h-4 w-4 text-slate-500 transition-transform", open && "rotate-180")} />
@@ -166,7 +167,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                   >
                     {filtered.length === 0 ? (
                       <p className="px-3 py-4 text-sm text-slate-500 text-center">
-                        No countries found
+                        {t("country.noResults")}
                       </p>
                     ) : (
                       filtered.map((c) => (
@@ -196,7 +197,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
 
             {/* Document type */}
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">
-              Document Type
+              {t("country.docType")}
             </label>
             <div className="grid grid-cols-2 gap-2">
               {(["passport", "visa"] as const).map((dt) => (
@@ -210,7 +211,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                       : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]"
                   )}
                 >
-                  {dt}
+                  {dt === "passport" ? t("country.passport") : t("country.visa")}
                 </button>
               ))}
             </div>
@@ -228,7 +229,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                   : "bg-deep-200 text-slate-600 cursor-not-allowed"
               )}
             >
-              Start Now <ArrowRight className="h-4 w-4" />
+              {t("country.startNow")} <ArrowRight className="h-4 w-4" />
             </motion.button>
           </div>
         </div>
@@ -252,7 +253,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                       {selected.name}
                     </h3>
                     <p className="text-xs text-slate-400 capitalize">
-                      {docType} Photo Requirements
+                      {t("country.photoRequirements", { docType: docType === "passport" ? t("country.passport") : t("country.visa") })}
                     </p>
                   </div>
                 </div>
@@ -260,13 +261,13 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <SpecItem
                     icon={<Ruler className="h-4 w-4" />}
-                    label="Photo Size"
+                    label={t("country.photoSize")}
                     value={`${spec.width_mm} \u00d7 ${spec.height_mm} mm`}
                     sub={`${pxW} \u00d7 ${pxH} px @ 300 DPI`}
                   />
                   <SpecItem
                     icon={<Palette className="h-4 w-4" />}
-                    label="Background"
+                    label={t("country.background")}
                     value={
                       <div className="flex items-center gap-2">
                         <div
@@ -283,17 +284,17 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                   />
                   <SpecItem
                     icon={<UserCircle className="h-4 w-4" />}
-                    label="Head Height"
-                    value={`${spec.head_pct[0]}\u2013${spec.head_pct[1]}% of photo`}
+                    label={t("country.headHeight")}
+                    value={t("country.headHeightValue", { min: String(spec.head_pct[0]), max: String(spec.head_pct[1]) })}
                   />
                   <SpecItem
                     icon={<span className="text-sm leading-none">&#128528;</span>}
-                    label="Expression"
+                    label={t("country.expression")}
                     value={selected.expression}
                   />
                   <SpecItem
                     icon={<Glasses className="h-4 w-4" />}
-                    label="Glasses"
+                    label={t("country.glasses")}
                     value={
                       <span className="flex items-center gap-1.5">
                         {selected.glasses ? (
@@ -301,13 +302,13 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                         ) : (
                           <X className="h-3.5 w-3.5 text-red-400" />
                         )}
-                        {selected.glasses ? "Allowed if eyes visible" : "Not allowed"}
+                        {selected.glasses ? t("country.glassesAllowed") : t("country.glassesNotAllowed")}
                       </span>
                     }
                   />
                   <SpecItem
                     icon={<span className="text-sm leading-none">&#129493;</span>}
-                    label="Headgear"
+                    label={t("country.headgear")}
                     value={
                       <span className="flex items-center gap-1.5">
                         {selected.headgear ? (
@@ -315,7 +316,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                         ) : (
                           <X className="h-3.5 w-3.5 text-red-400" />
                         )}
-                        {selected.headgear ? "Allowed (religious/medical)" : "Not allowed"}
+                        {selected.headgear ? t("country.headgearAllowed") : t("country.headgearNotAllowed")}
                       </span>
                     }
                   />
@@ -323,7 +324,7 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
 
                 {selected.notes && (
                   <div className="mt-3 rounded-lg bg-deep-200/50 border border-[rgba(0,212,255,0.06)] p-3 text-xs text-slate-400 leading-relaxed">
-                    <span className="font-semibold text-accent-300">Note:</span>{" "}
+                    <span className="font-semibold text-accent-300">{t("country.note")}</span>{" "}
                     {selected.notes}
                   </div>
                 )}
@@ -338,11 +339,10 @@ export default function StepCountry({ onNext, defaultCountry }: Props) {
                   <Globe className="h-7 w-7 text-slate-600" />
                 </div>
                 <h3 className="text-base font-bold text-slate-400 mb-1">
-                  Select a Country
+                  {t("country.selectCountry")}
                 </h3>
                 <p className="text-sm text-slate-600 max-w-sm mx-auto">
-                  Choose a country from the dropdown to see the exact passport or
-                  visa photo requirements.
+                  {t("country.selectCountryDesc")}
                 </p>
               </motion.div>
             )}

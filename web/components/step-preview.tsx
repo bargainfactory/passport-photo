@@ -8,10 +8,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
+import { useTranslation } from "@/lib/i18n";
 import PhotoEditor, {
   type Edits,
   type Variant,
+  type CropAdjust,
+  DEFAULT_CROP,
   editsToCssFilter,
+  cropToCssTransform,
 } from "@/components/photo-editor";
 
 export interface ProcessedBundle {
@@ -23,6 +27,10 @@ export interface ProcessedBundle {
   originalSheetUrl: string;
   originalPreviewUrl: string;
   originalPreviewSheetUrl: string;
+  /** Optional guarantor back template (Canada only). */
+  backUrl?: string;
+  /** Optional ganged back sheet matching the front 4-up (Canada only). */
+  backSheetUrl?: string;
 }
 
 interface Props {
@@ -35,6 +43,8 @@ interface Props {
   onEditsChange: (e: Edits) => void;
   editedOverrideUrl: string | null;
   onEditedOverrideChange: (url: string | null) => void;
+  cropAdjust: CropAdjust;
+  onCropAdjustChange: (c: CropAdjust) => void;
   onNext: (bundle: ProcessedBundle) => void;
   onBack: () => void;
 }
@@ -45,14 +55,14 @@ interface ValidationCheck {
   message: string;
 }
 
-const STAGES = [
-  { icon: ScanFace,    label: "Detecting face & features...",  done: "Face detected"          },
-  { icon: Eye,         label: "Correcting pose & alignment...",done: "Pose corrected"          },
-  { icon: Sun,         label: "Fixing lighting & shadows...",  done: "Lighting fixed"          },
-  { icon: Palette,     label: "Removing background...",        done: "Background removed"      },
-  { icon: Sparkles,    label: "Enhancing & retouching...",     done: "Enhanced"                },
-  { icon: Crop,        label: "Cropping to exact specs...",    done: "Cropped to spec"         },
-  { icon: ShieldCheck, label: "Validating compliance...",      done: "Compliance validated"    },
+const STAGE_KEYS = [
+  { icon: ScanFace,    labelKey: "preview.stage.detectingFace",  doneKey: "preview.done.faceDetected"          },
+  { icon: Eye,         labelKey: "preview.stage.correctingPose", doneKey: "preview.done.poseCorrected"          },
+  { icon: Sun,         labelKey: "preview.stage.fixingLighting", doneKey: "preview.done.lightingFixed"          },
+  { icon: Palette,     labelKey: "preview.stage.removingBg",     doneKey: "preview.done.bgRemoved"      },
+  { icon: Sparkles,    labelKey: "preview.stage.enhancing",      doneKey: "preview.done.enhanced"                },
+  { icon: Crop,        labelKey: "preview.stage.cropping",       doneKey: "preview.done.croppedToSpec"         },
+  { icon: ShieldCheck, labelKey: "preview.stage.validating",     doneKey: "preview.done.complianceValidated"    },
 ];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -61,8 +71,10 @@ export default function StepPreview({
   country, docType, imageUrl,
   variant, onVariantChange, edits, onEditsChange,
   editedOverrideUrl, onEditedOverrideChange,
+  cropAdjust, onCropAdjustChange,
   onNext, onBack,
 }: Props) {
+  const { t } = useTranslation();
   const [stage, setStage] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +94,7 @@ export default function StepPreview({
     let currentStage = 0;
     const advanceStage = () => {
       currentStage++;
-      if (currentStage < STAGES.length) {
+      if (currentStage < STAGE_KEYS.length) {
         setStage(currentStage);
         stageTimers.push(setTimeout(advanceStage, 2500));
       }
@@ -104,7 +116,9 @@ export default function StepPreview({
           bg_color: spec.bg_color,
           head_pct: spec.head_pct,
           eye_line_pct: spec.eye_line_pct,
+          crown_top_mm: spec.crown_top_mm ?? null,
           print_sheet: spec.print_sheet ?? null,
+          country_name: country.name,
         }),
       });
 
@@ -133,9 +147,11 @@ export default function StepPreview({
         originalSheetUrl: data.original_sheet_b64 || data.sheet_b64,
         originalPreviewUrl: data.original_preview_b64 || data.preview_b64 || data.processed_b64,
         originalPreviewSheetUrl: data.original_preview_sheet_b64 || data.preview_sheet_b64 || data.sheet_b64,
+        backUrl: data.back_b64 || undefined,
+        backSheetUrl: data.back_sheet_b64 || undefined,
       });
       setChecks(Array.isArray(data.validation) ? data.validation : []);
-      setStage(STAGES.length);
+      setStage(STAGE_KEYS.length);
       setTimeout(() => setDone(true), 400);
     } catch (err: unknown) {
       stageTimers.forEach(clearTimeout);
@@ -166,12 +182,12 @@ export default function StepPreview({
         onClick={onBack}
         className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-accent-300 transition-colors mb-3"
       >
-        <ArrowLeft className="h-4 w-4" /> Back
+        <ArrowLeft className="h-4 w-4" /> {t("preview.back")}
       </button>
 
       <div className="inline-flex items-center gap-2 rounded-full bg-accent-50 border border-[rgba(0,212,255,0.1)] px-3 py-1 text-sm font-semibold text-accent-300 mb-4">
         <span className="text-base">{country.flag}</span>
-        {country.name} &mdash; {docType.charAt(0).toUpperCase() + docType.slice(1)}
+        {country.name} &mdash; {docType === "passport" ? t("country.passport") : t("country.visa")}
       </div>
 
       <AnimatePresence mode="wait">
@@ -185,7 +201,7 @@ export default function StepPreview({
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20">
               <AlertTriangle className="h-7 w-7 text-red-400" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Processing Error</h3>
+            <h3 className="text-lg font-bold text-white mb-2">{t("preview.errorTitle")}</h3>
             <p className="text-sm text-slate-400 mb-5 max-w-sm mx-auto">{error}</p>
             <div className="flex items-center justify-center gap-3">
               <motion.button
@@ -194,13 +210,13 @@ export default function StepPreview({
                 onClick={runProcessing}
                 className="btn-glow flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white"
               >
-                <RefreshCw className="h-4 w-4" /> Retry
+                <RefreshCw className="h-4 w-4" /> {t("preview.retry")}
               </motion.button>
               <button
                 onClick={onBack}
                 className="btn-ghost rounded-lg px-5 py-2.5 text-sm font-medium text-slate-300"
               >
-                Upload Different Photo
+                {t("preview.uploadDifferent")}
               </button>
             </div>
           </motion.div>
@@ -228,20 +244,20 @@ export default function StepPreview({
             </div>
 
             <h3 className="text-center text-base font-bold text-white mb-1">
-              AI Processing Your Photo
+              {t("preview.processingTitle")}
             </h3>
             <p className="text-center text-xs text-slate-500 mb-5">
-              Transforming your selfie into a professional passport photo
+              {t("preview.processingSubtitle")}
             </p>
 
             <div className="space-y-2 max-w-sm mx-auto">
-              {STAGES.map((s, i) => {
+              {STAGE_KEYS.map((s, i) => {
                 const Icon = s.icon;
                 const isComplete = i < stage;
                 const isCurrent = i === stage;
                 return (
                   <motion.div
-                    key={s.label}
+                    key={s.labelKey}
                     initial={{ opacity: 0, x: -12 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.06 }}
@@ -269,7 +285,7 @@ export default function StepPreview({
                       isCurrent && "text-white",
                       !isComplete && !isCurrent && "text-slate-600"
                     )}>
-                      {isComplete ? s.done : s.label}
+                      {isComplete ? t(s.doneKey) : t(s.labelKey)}
                     </span>
                   </motion.div>
                 );
@@ -280,7 +296,7 @@ export default function StepPreview({
             <div className="mt-5 h-1.5 w-full rounded-full bg-deep-200 overflow-hidden wave-bar">
               <motion.div
                 initial={{ width: "0%" }}
-                animate={{ width: `${Math.min((stage / STAGES.length) * 100, 95)}%` }}
+                animate={{ width: `${Math.min((stage / STAGE_KEYS.length) * 100, 95)}%` }}
                 transition={{ duration: 0.5, ease: "easeInOut" }}
                 className="h-full rounded-full bg-gradient-to-r from-accent-300 via-accent-400 to-accent-500"
                 style={{ boxShadow: "0 0 12px rgba(0, 212, 255, 0.5)" }}
@@ -288,7 +304,7 @@ export default function StepPreview({
             </div>
 
             <p className="text-[11px] text-slate-600 mt-3 text-center">
-              AI is enhancing your photo. This may take 15&ndash;30 seconds&hellip;
+              {t("preview.processingHint")}
             </p>
           </motion.div>
         ) : (
@@ -302,7 +318,7 @@ export default function StepPreview({
             {/* Before / After */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
               <div className="glass rounded-xl p-4">
-                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Original</p>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">{t("preview.original")}</p>
                 <div className="rounded-lg overflow-hidden bg-deep-200 flex items-center justify-center" style={{ minHeight: "10rem" }}>
                   <img src={imageUrl} alt="Original" className="rounded-lg w-full object-contain max-h-64" />
                 </div>
@@ -311,11 +327,11 @@ export default function StepPreview({
               <div className="rounded-xl p-4 border border-accent-300/20 bg-gradient-to-br from-deep-100 to-deep-50 glow-border-active">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[11px] font-bold text-accent-300 uppercase tracking-wider">
-                    {variant === "enhanced" ? "AI Enhanced" : "Cropped Only"}
+                    {variant === "enhanced" ? t("preview.aiEnhanced") : t("preview.croppedOnly")}
                   </p>
                   {variant === "enhanced" && (
                     <span className="flex items-center gap-1 rounded-full bg-accent-300/10 border border-accent-300/15 px-2 py-0.5 text-[10px] font-semibold text-accent-300">
-                      <Sparkles className="h-2.5 w-2.5" /> Studio Quality
+                      <Sparkles className="h-2.5 w-2.5" /> {t("preview.studioQuality")}
                     </span>
                   )}
                 </div>
@@ -325,20 +341,24 @@ export default function StepPreview({
                       src={editedOverrideUrl ?? (variant === "enhanced" ? bundle.previewUrl : bundle.originalPreviewUrl)}
                       alt="Processed"
                       className="rounded-lg w-full object-contain max-h-64"
-                      style={{ filter: editsToCssFilter(edits) }}
+                      style={{
+                        filter: editsToCssFilter(edits),
+                        transform: cropToCssTransform(cropAdjust),
+                        transformOrigin: "center",
+                      }}
                     />
                   ) : (
-                    <div className="text-slate-600 text-sm">Processing&hellip;</div>
+                    <div className="text-slate-600 text-sm">{t("preview.processing")}</div>
                   )}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-2 text-center">
-                  {spec.width_mm}&times;{spec.height_mm}mm &middot; {spec.bg_color[0] === 255 && spec.bg_color[1] === 255 && spec.bg_color[2] === 255 ? "White" : "Light grey"} BG &middot; 350 DPI
+                  {spec.width_mm}&times;{spec.height_mm}mm &middot; {spec.bg_color[0] === 255 && spec.bg_color[1] === 255 && spec.bg_color[2] === 255 ? t("preview.whiteBg") : t("preview.lightGreyBg")} BG &middot; 350 DPI
                 </p>
               </div>
             </div>
 
-            {/* Variant toggle */}
-            <div className="flex items-center justify-center gap-2 mb-4">
+            {/* Variant toggle + action buttons */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
               <button
                 type="button"
                 onClick={() => { onVariantChange("enhanced"); onEditedOverrideChange(null); }}
@@ -349,7 +369,7 @@ export default function StepPreview({
                     : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
                 )}
               >
-                <Sparkles className="h-3.5 w-3.5" /> AI Enhanced
+                <Sparkles className="h-3.5 w-3.5" /> {t("preview.aiEnhanced")}
               </button>
               <button
                 type="button"
@@ -361,18 +381,41 @@ export default function StepPreview({
                     : "border-[rgba(0,212,255,0.08)] bg-deep-100 text-slate-400 hover:border-[rgba(0,212,255,0.15)]",
                 )}
               >
-                <Crop className="h-3.5 w-3.5" /> Cropped Only
+                <Crop className="h-3.5 w-3.5" /> {t("preview.croppedOnly")}
               </button>
+
+              <div className="w-px h-7 bg-slate-700/50 mx-1 hidden sm:block" />
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => bundle && onNext(bundle)}
+                disabled={!bundle}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold transition-all",
+                  bundle ? "btn-glow text-white" : "bg-deep-200 text-slate-600 cursor-not-allowed",
+                )}
+              >
+                {t("preview.continueToDownload")} <ArrowRight className="h-3.5 w-3.5" />
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onBack}
+                className="flex items-center gap-1.5 rounded-lg border border-[rgba(0,212,255,0.08)] bg-deep-100 px-4 py-2.5 text-xs font-semibold text-slate-400 hover:border-[rgba(0,212,255,0.15)] transition-all"
+              >
+                <RotateCcw className="h-3 w-3" /> {t("preview.retake")}
+              </motion.button>
             </div>
 
-            {/* Enhancement pills */}
-            <div className={cn("flex flex-wrap items-center justify-center gap-2 mb-4", variant === "original" && "opacity-40")}>
+            {/* Enhancement pills — only shown for AI Enhanced variant */}
+            <div className={cn("flex flex-wrap items-center justify-center gap-2 mb-4", variant === "original" && "hidden")}>
               {[
-                { icon: Sun, text: "Lighting corrected" },
-                { icon: Palette, text: "Background replaced" },
-                { icon: Sparkles, text: "Skin enhanced" },
-                { icon: Eye, text: "Pose straightened" },
-                { icon: Crop, text: "Cropped to spec" },
+                { icon: Sun, text: t("preview.pill.lighting") },
+                { icon: Palette, text: t("preview.pill.background") },
+                { icon: Sparkles, text: t("preview.pill.skin") },
+                { icon: Eye, text: t("preview.pill.pose") },
+                { icon: Crop, text: t("preview.pill.crop") },
               ].map((pill) => (
                 <div
                   key={pill.text}
@@ -392,7 +435,7 @@ export default function StepPreview({
                     <div className="flex items-center justify-between mb-2.5">
                       <h3 className="text-xs font-bold text-white flex items-center gap-2">
                         <ShieldCheck className="h-4 w-4 text-accent-300" />
-                        Compliance
+                        {t("preview.compliance")}
                       </h3>
                       <span className={cn(
                         "text-[10px] font-bold rounded-full px-2 py-0.5",
@@ -431,7 +474,7 @@ export default function StepPreview({
                   <div className="glass rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-2.5">
                       <Sparkles className="h-4 w-4 text-accent-300" />
-                      <h3 className="text-xs font-bold text-white">Customize</h3>
+                      <h3 className="text-xs font-bold text-white">{t("preview.customize")}</h3>
                     </div>
                     <PhotoEditor
                       variant={variant}
@@ -456,44 +499,77 @@ export default function StepPreview({
               allPassed ? (
                 <div className="rounded-xl bg-accent-300/5 border border-accent-300/15 p-3 text-center mb-4">
                   <p className="text-xs font-bold text-accent-300">
-                    All compliance checks passed! Your photo is ready.
+                    {t("preview.allChecksPassed")}
                   </p>
                 </div>
               ) : (
                 <div className="rounded-xl bg-amber-500/5 border border-amber-500/15 p-3 text-center mb-4">
                   <p className="text-xs font-bold text-amber-400">
-                    Some checks did not pass. The photo may still be usable.
+                    {t("preview.someChecksFailed")}
                   </p>
                 </div>
               )
             )}
 
-            <p className="text-center text-[11px] text-slate-600 mb-3">
-              Your photo is processed securely and never stored.
-            </p>
+            {/* Crop Adjustment */}
+            {bundle && (
+              <div className="glass rounded-xl p-4 mb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                    <Crop className="h-4 w-4 text-accent-300" />
+                    {t("preview.adjustCrop")}
+                  </h3>
+                  {(cropAdjust.x !== 0 || cropAdjust.y !== 0 || cropAdjust.zoom !== 1) && (
+                    <button
+                      type="button"
+                      onClick={() => onCropAdjustChange(DEFAULT_CROP)}
+                      className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-accent-300 transition-colors"
+                    >
+                      <RotateCcw className="h-3 w-3" /> {t("preview.reset")}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-semibold text-slate-400">{t("preview.vertical")}</span>
+                      <span className="text-[11px] text-slate-500 tabular-nums">{cropAdjust.y > 0 ? "+" : ""}{cropAdjust.y.toFixed(1)}%</span>
+                    </div>
+                    <input
+                      type="range" min={-15} max={15} step={0.5} value={cropAdjust.y}
+                      onChange={(e) => onCropAdjustChange({ ...cropAdjust, y: parseFloat(e.target.value) })}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-semibold text-slate-400">{t("preview.horizontal")}</span>
+                      <span className="text-[11px] text-slate-500 tabular-nums">{cropAdjust.x > 0 ? "+" : ""}{cropAdjust.x.toFixed(1)}%</span>
+                    </div>
+                    <input
+                      type="range" min={-15} max={15} step={0.5} value={cropAdjust.x}
+                      onChange={(e) => onCropAdjustChange({ ...cropAdjust, x: parseFloat(e.target.value) })}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-semibold text-slate-400">{t("preview.zoom")}</span>
+                      <span className="text-[11px] text-slate-500 tabular-nums">{((cropAdjust.zoom - 1) * 100).toFixed(0)}%</span>
+                    </div>
+                    <input
+                      type="range" min={1} max={1.3} step={0.01} value={cropAdjust.zoom}
+                      onChange={(e) => onCropAdjustChange({ ...cropAdjust, zoom: parseFloat(e.target.value) })}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
-            <div className="flex flex-col items-center gap-2.5">
-              <motion.button
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => bundle && onNext(bundle)}
-                disabled={!bundle}
-                className={cn(
-                  "w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl px-8 py-3 text-sm font-bold transition-all",
-                  bundle ? "btn-glow text-white" : "bg-deep-200 text-slate-600 cursor-not-allowed"
-                )}
-              >
-                Continue to Download <ArrowRight className="h-4 w-4" />
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={onBack}
-                className="btn-ghost inline-flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-semibold text-slate-300"
-              >
-                <RotateCcw className="h-4 w-4" /> Retake
-              </motion.button>
-            </div>
+            <p className="text-center text-[11px] text-slate-600 mb-3">
+              {t("preview.secureNote")}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>

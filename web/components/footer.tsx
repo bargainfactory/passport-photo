@@ -1,8 +1,11 @@
 "use client";
 
 import { Shield, Lock, Zap, Fingerprint } from "lucide-react";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Footer() {
+  const { t } = useTranslation();
+
   return (
     <footer className="mt-auto border-t border-[rgba(0,212,255,0.06)] bg-[rgba(5,10,20,0.6)]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
@@ -20,20 +23,20 @@ export default function Footer() {
           <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
               <Shield className="h-3.5 w-3.5 text-accent-300/50" />
-              Photos processed locally
+              {t("footer.processedLocally")}
             </div>
             <div className="flex items-center gap-1.5">
               <Lock className="h-3.5 w-3.5 text-accent-300/50" />
-              Never stored on servers
+              {t("footer.neverStored")}
             </div>
             <div className="flex items-center gap-1.5">
               <Zap className="h-3.5 w-3.5 text-accent-300/50" />
-              AI-powered compliance
+              {t("footer.aiPowered")}
             </div>
           </div>
 
           <p className="text-[11px] text-slate-600">
-            &copy; {new Date().getFullYear()} VisagePass. All rights reserved.
+            {t("footer.copyright", { year: String(new Date().getFullYear()) })}
           </p>
         </div>
       </div>

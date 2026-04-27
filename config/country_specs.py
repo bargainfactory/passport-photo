@@ -53,16 +53,18 @@ COUNTRY_SPECS = {
         "passport": {
             "width_mm": 51, "height_mm": 51,  # 2x2 inches
             "bg_color": (255, 255, 255),
-            # Head height locked to 1.4" (70% of the 2" frame) so the
-            # shoulders naturally fill the 2" width on average builds.
-            "head_pct": (70, 70),
+            # Head height ≈ 1.34" (34.2mm = 67% of the 2" frame), with
+            # 3mm crown clearance at the top.
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "visa": {
             "width_mm": 51, "height_mm": 51,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 70),
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "glasses": False,
         "headgear": False,
@@ -138,14 +140,16 @@ COUNTRY_SPECS = {
         "passport": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "visa": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "glasses": False,
         "headgear": False,
@@ -156,14 +160,16 @@ COUNTRY_SPECS = {
         "passport": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "visa": {
             "width_mm": 35, "height_mm": 45,
             "bg_color": (255, 255, 255),
-            "head_pct": (70, 80),
+            "head_pct": (67, 67),
             "eye_line_pct": (56, 69),
+            "crown_top_mm": 3,
         },
         "glasses": True,
         "headgear": False,

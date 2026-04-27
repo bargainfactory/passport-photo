@@ -10,7 +10,7 @@ import StepPreview, { type ProcessedBundle } from "@/components/step-preview";
 import StepDownload from "@/components/step-download";
 import Footer from "@/components/footer";
 import { type CountrySpec, COUNTRIES } from "@/lib/countries";
-import { type Edits, type Variant, DEFAULT_EDITS } from "@/components/photo-editor";
+import { type Edits, type Variant, type CropAdjust, DEFAULT_EDITS, DEFAULT_CROP } from "@/components/photo-editor";
 
 function Particles() {
   const [dots, setDots] = useState<
@@ -66,6 +66,7 @@ export default function Home() {
   const [variant, setVariant] = useState<Variant>("enhanced");
   const [edits, setEdits] = useState<Edits>(DEFAULT_EDITS);
   const [editedOverrideUrl, setEditedOverrideUrl] = useState<string | null>(null);
+  const [cropAdjust, setCropAdjust] = useState<CropAdjust>(DEFAULT_CROP);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -115,6 +116,8 @@ export default function Home() {
                 onEditsChange={setEdits}
                 editedOverrideUrl={editedOverrideUrl}
                 onEditedOverrideChange={setEditedOverrideUrl}
+                cropAdjust={cropAdjust}
+                onCropAdjustChange={setCropAdjust}
                 onNext={(b) => {
                   setBundle(b);
                   setStep(3);
@@ -135,6 +138,7 @@ export default function Home() {
                 onEditsChange={setEdits}
                 editedOverrideUrl={editedOverrideUrl}
                 onEditedOverrideChange={setEditedOverrideUrl}
+                cropAdjust={cropAdjust}
                 onBack={() => setStep(2)}
               />
             )}

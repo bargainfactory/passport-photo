@@ -35,12 +35,10 @@ import io
 _session = None
 _session_name = None
 
-# Model preference. ISNet is listed first because it ships pre-cached in
-# this project and delivers near-SOTA quality when paired with our
-# trimap + guided-filter refinement below. BiRefNet-portrait (Zheng
-# et al., 2024) is nominally higher quality but pulls ~1 GB on first
-# use, blowing through any reasonable request timeout — opt-in by
-# setting env var BG_MODEL=birefnet-portrait.
+# Model preference. ISNet ships pre-cached and starts the server in
+# milliseconds. BiRefNet-portrait (Zheng et al., 2024) gives slightly
+# crisper hair edges but is a ~1 GB download — opt in via env var
+# BG_MODEL=birefnet-portrait when you have it cached.
 import os
 _preferred = os.environ.get("BG_MODEL", "").strip()
 _MODEL_CANDIDATES = tuple(
@@ -54,6 +52,19 @@ _MODEL_CANDIDATES = tuple(
         ]
     )
 )
+
+
+def preload_model() -> str | None:
+    """Eagerly load the segmentation model so the first request is fast.
+
+    Returns the loaded model name or None if no model could be loaded.
+    Safe to call at server startup before any user request arrives.
+    """
+    try:
+        _get_session()
+        return _session_name
+    except Exception:
+        return None
 
 
 def _get_session():
@@ -124,15 +135,18 @@ def remove_background(image_bytes: bytes) -> Image.Image:
     """
     session = _get_session()
 
-    # Stage 1: coarse alpha from the neural network. alpha_matting is
-    # intentionally disabled here — we do our own higher-quality
-    # trimap + guided-filter refinement below, which is sharper than
-    # rembg's built-in PyMatting pass and avoids its characteristic
-    # gray halo on dark backgrounds.
+    # Stage 1: coarse alpha + PyMatting refinement for natural hair edges
+    # (Canva-style soft transitions). The alpha-matting pass is what
+    # gives wispy hair tips their realistic look; the dark-fringe artefact
+    # we used to see is fixed by step 5 in _refine_mask which inpaints
+    # contaminated edge RGB with clean subject colour from the interior.
     result_bytes = remove(
         image_bytes,
         session=session,
-        alpha_matting=False,
+        alpha_matting=True,
+        alpha_matting_foreground_threshold=245,
+        alpha_matting_background_threshold=15,
+        alpha_matting_erode_size=10,
         post_process_mask=False,
         only_mask=False,
     )
@@ -146,16 +160,21 @@ def remove_background(image_bytes: bytes) -> Image.Image:
 # --- Refinement ---
 
 def _refine_mask(rgba_image: Image.Image, original_bytes: bytes) -> Image.Image:
-    """High-fidelity portrait matting pipeline.
+    """Canva-style portrait matting.
+
+    Trusts PyMatting's soft alpha (from rembg's alpha_matting pass) for
+    natural wispy hair tips. The previously-troublesome dark fringe is
+    eliminated by inpainting every pixel that isn't fully opaque (alpha
+    < 240) with subject colour extrapolated from the opaque interior —
+    so the composite onto a new background fades from clean subject
+    colour to clean bg colour with zero contamination.
 
     Pipeline:
-      1. Face-anchored connected-component isolation
-      2. Hole filling
-      3. Tight trimap construction
-      4. Guided-filter alpha refinement in the uncertain band
-      5. Region-specific treatment (hair = soft, body = binary-snapped)
-      6. Skin-tone ear recovery with morphological bridging
-      7. Final debris sweep
+      1. Detect face for component isolation.
+      2. Drop unrelated foreground components.
+      3. Fill interior holes (eye sockets, glasses gaps).
+      4. Recover ears clipped by the network.
+      5. RGB decontamination via inpainting from opaque-only sources.
     """
     arr = np.array(rgba_image)
     alpha = arr[:, :, 3].copy()
@@ -177,48 +196,26 @@ def _refine_mask(rgba_image: Image.Image, original_bytes: bytes) -> Image.Image:
     faces = face_cascade.detectMultiScale(original_gray, 1.1, 5, minSize=(80, 80))
     face_rect = max(faces, key=lambda f: f[2] * f[3]) if len(faces) else None
 
-    # ---- 2. Initial mask cleanup ----
-    alpha = _break_thin_bridges(alpha, threshold=80)
+    # ---- 2. Drop unrelated foreground components ----
     alpha = _keep_face_component(alpha, face_rect, threshold=80)
+
+    # ---- 3. Fill interior holes ----
     alpha = _fill_interior_holes(alpha, threshold=128)
 
-    # ---- 3. Trimap ----
-    fg, bg, unknown = _build_trimap_simple(alpha, face_rect)
-
-    # ---- 4. Guided-filter alpha refinement ----
-    alpha_f = alpha.astype(np.float32) / 255.0
-    refined = _guided_filter(original_gray, alpha_f, radius=2, eps=1e-4)
-    refined = np.clip(refined, 0, 1)
-    alpha_out = alpha.copy()
-    alpha_out[unknown] = np.clip(refined[unknown] * 255, 0, 255).astype(np.uint8)
-    alpha_out[fg] = 255
-    alpha_out[bg] = 0
-    alpha = alpha_out
-
-    # ---- 5. Region-specific edge treatment ----
-    body_zone = _body_zone_mask(alpha.shape, face_rect)
-
-    # Morphological closing in body zone bridges gaps from patterned
-    # clothing (plaid, stripes) where the model left low-alpha holes.
-    body_binary = ((alpha > 30) & body_zone).astype(np.uint8) * 255
-    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    closed = cv2.morphologyEx(body_binary, cv2.MORPH_CLOSE, close_k, iterations=2)
-    clothing_fill = body_zone & (closed > 0) & (alpha < 200)
-    alpha[clothing_fill] = 255
-
-    # Binary-snap remaining semi-transparent body pixels. Use a low
-    # threshold (50) so clothing pixels the model was uncertain about
-    # lean toward opaque rather than being erased.
-    snap = body_zone & (alpha > 5) & (alpha < 240)
-    alpha[snap & (alpha >= 50)] = 255
-    alpha[snap & (alpha < 50)] = 0
-
-    # ---- 6. Ear recovery ----
+    # ---- 4. Ear recovery ----
     if face_rect is not None:
         alpha = _recover_ears(alpha, original, face_rect)
 
-    # ---- 7. Final debris sweep ----
-    alpha = _keep_face_component(alpha, face_rect, threshold=80)
+    # ---- 5. RGB decontamination ----
+    # Sources are STRICTLY the opaque interior (alpha > 240). Every other
+    # pixel gets its RGB inpainted from those sources, so soft-alpha hair
+    # edges hold pure subject colour rather than the camera-blended
+    # subject+orig_bg mix that produced the dark fringe.
+    if np.any(alpha > 240):
+        inpaint_mask = (alpha <= 240).astype(np.uint8) * 255
+        arr[:, :, :3] = cv2.inpaint(
+            arr[:, :, :3], inpaint_mask, 3, cv2.INPAINT_TELEA,
+        )
 
     arr[:, :, 3] = alpha
     return Image.fromarray(arr, "RGBA")
@@ -248,9 +245,12 @@ def _break_thin_bridges(alpha: np.ndarray, threshold: int = 80) -> np.ndarray:
 def _keep_face_component(alpha: np.ndarray, face_rect, threshold: int = 80) -> np.ndarray:
     """Keep only the connected component that contains the detected face.
 
-    Falls back to the largest component when no face is known. This is
-    strictly stronger than largest-component because a background object
-    larger than the subject (or glued to it via noise) no longer wins.
+    Removes only pixels that belong to OTHER above-threshold components
+    (background objects, noise blobs). Soft-alpha pixels below threshold
+    near the face — wispy hair tips, anti-aliased edges — are preserved
+    so PyMatting's natural transitions survive this cleanup pass.
+
+    Falls back to the largest component when no face is known.
     """
     binary = (alpha > threshold).astype(np.uint8)
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
@@ -260,9 +260,6 @@ def _keep_face_component(alpha: np.ndarray, face_rect, threshold: int = 80) -> n
     target_label = None
     if face_rect is not None:
         fx, fy, fw, fh = face_rect
-        # Sample a 5x5 grid inside the face rect and pick the label that
-        # appears most often — robust against a single pixel landing on
-        # an eye-socket gap or nostril.
         votes: dict[int, int] = {}
         for dy in (0.25, 0.4, 0.55, 0.7, 0.85):
             for dx in (0.25, 0.4, 0.5, 0.6, 0.75):
@@ -275,13 +272,22 @@ def _keep_face_component(alpha: np.ndarray, face_rect, threshold: int = 80) -> n
             target_label = max(votes.items(), key=lambda kv: kv[1])[0]
 
     if target_label is None:
-        # Fallback: largest non-background component
         areas = stats[1:, cv2.CC_STAT_AREA]
         target_label = int(np.argmax(areas)) + 1
 
-    keep_mask = labels == target_label
     cleaned = alpha.copy()
-    cleaned[~keep_mask] = 0
+    # Zero only pixels in OTHER above-threshold components. Pixels with
+    # label 0 (alpha <= threshold) keep their original soft values — but
+    # only if they are within a feathering distance of the face
+    # component, so distant noise blobs of soft alpha still get culled.
+    face_mask = (labels == target_label).astype(np.uint8)
+    if np.any(face_mask):
+        dist = cv2.distanceTransform(1 - face_mask, cv2.DIST_L2, 5)
+        max_feather = max(15.0, float(face_rect[2]) * 0.08) if face_rect is not None else 25.0
+        distant_soft = (labels == 0) & (dist > max_feather)
+        cleaned[distant_soft] = 0
+    other_components = (labels > 0) & (labels != target_label)
+    cleaned[other_components] = 0
     return cleaned
 
 
@@ -389,9 +395,9 @@ def _build_trimap_simple(alpha: np.ndarray, face_rect):
     binary = (alpha > 128).astype(np.uint8) * 255
 
     if face_rect is not None:
-        band = max(4, int(face_rect[2] * 0.025))
+        band = max(8, int(face_rect[2] * 0.05))
     else:
-        band = max(4, int(min(alpha.shape) * 0.007))
+        band = max(8, int(min(alpha.shape) * 0.012))
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (band, band))
     eroded = cv2.erode(binary, kernel)
@@ -451,19 +457,22 @@ def _build_trimap(alpha: np.ndarray, original_gray: np.ndarray, face_rect):
 
 
 def _body_zone_mask(shape, face_rect):
-    """Boolean mask for the non-hair body region (below/beside the face).
+    """Boolean mask for the non-hair body region (shoulders + clothing).
 
-    We snap alpha to binary inside this zone to prevent the fuzzy
-    halos the refinement would otherwise leave on shoulders / jaw /
-    clothing. Hair above the face keeps its soft transition.
+    Excludes the entire head silhouette — top of frame down to the
+    jawline, with generous left/right margin — so side hair keeps its
+    natural soft alpha. Binary snapping is reserved for shoulders and
+    clothing where halos would look unnatural.
     """
     h, w = shape
     body = np.ones((h, w), dtype=bool)
     if face_rect is not None:
         fx, fy, fw, fh = face_rect
-        hair_bottom = fy + int(fh * 0.05)
-        hair_left = max(0, fx - int(fw * 0.5))
-        hair_right = min(w, fx + fw + int(fw * 0.5))
+        # Cover the entire head: top of frame to jawline, with wide
+        # horizontal margin for side hair / loose strands.
+        hair_bottom = fy + int(fh * 0.95)
+        hair_left = max(0, fx - int(fw * 0.7))
+        hair_right = min(w, fx + fw + int(fw * 0.7))
         body[0:hair_bottom, hair_left:hair_right] = False
     return body
 

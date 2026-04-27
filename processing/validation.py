@@ -33,15 +33,46 @@ def _get_face_mesh():
 
 
 def _landmarks(image_bgr):
-    """Return FaceMesh landmarks (normalized 0-1) or None."""
+    """Return FaceMesh landmarks (normalized 0-1) or None.
+
+    Downsamples to 640px wide before inference — landmarks are normalized,
+    so position information is preserved at much lower compute cost.
+    """
     mesh = _get_face_mesh()
     if mesh is None:
         return None
-    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    h, w = image_bgr.shape[:2]
+    target_w = 640
+    if w > target_w:
+        scale = target_w / w
+        small = cv2.resize(
+            image_bgr, (target_w, int(h * scale)), interpolation=cv2.INTER_AREA,
+        )
+    else:
+        small = image_bgr
+    rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
     res = mesh.process(rgb)
     if not res.multi_face_landmarks:
         return None
     return res.multi_face_landmarks[0].landmark
+
+
+# Module-level Haar cascades (loaded once, then cached)
+_eye_cascade = None
+_eye_glasses_cascade = None
+
+
+def _get_eye_cascades():
+    global _eye_cascade, _eye_glasses_cascade
+    if _eye_cascade is None:
+        _eye_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_eye.xml"
+        )
+    if _eye_glasses_cascade is None:
+        _eye_glasses_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml"
+        )
+    return _eye_cascade, _eye_glasses_cascade
 
 
 def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
@@ -134,8 +165,12 @@ def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
         "message": "No red-eye detected." if redeye_ok else "Possible red-eye detected. Consider retaking without flash.",
     })
 
+    # MediaPipe FaceMesh is the dominant cost. Compute once, share across
+    # both eyes-open and mouth-closed checks.
+    landmarks = _landmarks(image_bgr)
+
     # 8. Eyes open check
-    eyes_open, eyes_msg = _check_eyes_open(image_bgr, face_rect)
+    eyes_open, eyes_msg = _check_eyes_open(image_bgr, face_rect, landmarks)
     results.append({
         "check": "Eyes open",
         "passed": eyes_open,
@@ -143,7 +178,7 @@ def validate_photo(image_bgr, face_rect, face_metrics, spec=None):
     })
 
     # 9. Mouth closed (no teeth showing)
-    mouth_closed, mouth_msg = _check_mouth_closed(image_bgr, face_rect)
+    mouth_closed, mouth_msg = _check_mouth_closed(image_bgr, face_rect, landmarks)
     results.append({
         "check": "Mouth closed",
         "passed": mouth_closed,
@@ -223,14 +258,16 @@ def _eye_aspect_ratio(landmarks, img_w, img_h, indices):
     return float(vert / horiz)
 
 
-def _check_eyes_open(image_bgr, face_rect):
+def _check_eyes_open(image_bgr, face_rect, landmarks=None):
     """Check if both eyes are open using Eye Aspect Ratio (EAR).
 
     Uses MediaPipe Face Mesh landmarks — robust across skin tones and
     lighting. Falls back to a lenient Haar check if FaceMesh fails.
+    Accepts pre-computed landmarks to avoid redundant inference.
     """
     h, w = image_bgr.shape[:2]
-    landmarks = _landmarks(image_bgr)
+    if landmarks is None:
+        landmarks = _landmarks(image_bgr)
 
     if landmarks is not None:
         # Right eye (subject's right): 33 outer, 133 inner, 159/158 top, 145/153 bottom
@@ -258,12 +295,11 @@ def _check_eyes_open(image_bgr, face_rect):
     if eye_region.size == 0:
         return True, "Both eyes appear open."
     gray_eyes = cv2.cvtColor(eye_region, cv2.COLOR_BGR2GRAY)
-    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    eye_cascade, alt = _get_eye_cascades()
     eyes = eye_cascade.detectMultiScale(gray_eyes, 1.1, 3)
     if len(eyes) >= 1:
         return True, "Both eyes appear open."
     # Only fail if eye-tree-eyeglasses cascade also finds nothing
-    alt = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye_tree_eyeglasses.xml")
     if len(alt.detectMultiScale(gray_eyes, 1.1, 3)) >= 1:
         return True, "Both eyes appear open."
     return False, "Eyes may be closed. Keep both eyes open and clearly visible."
@@ -286,14 +322,16 @@ def _mouth_aspect_ratio(landmarks, img_w, img_h):
     return float(vert / horiz)
 
 
-def _check_mouth_closed(image_bgr, face_rect):
+def _check_mouth_closed(image_bgr, face_rect, landmarks=None):
     """Check mouth is closed using Mouth Aspect Ratio (MAR).
 
     MAR from MediaPipe inner-lip landmarks is a direct geometric
     measurement — no brightness/skin-tone bias like the prior heuristic.
+    Accepts pre-computed landmarks to avoid redundant inference.
     """
     h, w = image_bgr.shape[:2]
-    landmarks = _landmarks(image_bgr)
+    if landmarks is None:
+        landmarks = _landmarks(image_bgr)
 
     if landmarks is not None:
         try:

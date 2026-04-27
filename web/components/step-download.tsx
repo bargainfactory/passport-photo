@@ -3,17 +3,21 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-  ArrowLeft, Download, FileImage, Printer, Check, Lock,
+  ArrowLeft, Download, FileImage, Printer, Lock,
   CreditCard, Sparkles, Mail, Loader2, Sliders,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type CountrySpec, getSpec } from "@/lib/countries";
+import { useTranslation } from "@/lib/i18n";
 import { type ProcessedBundle } from "@/components/step-preview";
 import PhotoEditor, {
   type Edits,
   type Variant,
+  type CropAdjust,
   editsToCssFilter,
+  cropToCssTransform,
   bakeEditsToDataUrl,
+  bakeCropToDataUrl,
   buildPrintSheet,
   fitJpegUnderKB,
 } from "@/components/photo-editor";
@@ -31,6 +35,7 @@ interface Props {
   onEditsChange: (e: Edits) => void;
   editedOverrideUrl: string | null;
   onEditedOverrideChange: (url: string | null) => void;
+  cropAdjust: CropAdjust;
   onBack: () => void;
 }
 
@@ -40,8 +45,9 @@ export default function StepDownload({
   country, docType, bundle,
   variant, onVariantChange, edits, onEditsChange,
   editedOverrideUrl, onEditedOverrideChange,
-  onBack,
+  cropAdjust, onBack,
 }: Props) {
+  const { t, locale } = useTranslation();
   const spec = getSpec(country, docType);
   const [format, setFormat] = useState<"jpeg" | "png">("jpeg");
   const [layout, setLayout] = useState<"single" | "sheet">("single");
@@ -49,18 +55,59 @@ export default function StepDownload({
   const [selectedTier, setSelectedTier] = useState<Tier>("digital");
   const [purchased, setPurchased] = useState<{ digital: boolean; sheet: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState<"digital" | "sheet" | null>(null);
+  const [downloading, setDownloading] = useState<"digital" | "sheet" | "back" | "backSheet" | null>(null);
+
+  const [localPricing, setLocalPricing] = useState<{
+    currency: string;
+    prices: Record<string, number>;
+    zero_decimal: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/pricing?country=${encodeURIComponent(country.name)}`)
+      .then((r) => r.json())
+      .then((data) => setLocalPricing(data))
+      .catch(() => {});
+  }, [country.name]);
 
   const selection = useMemo(() => ({
     digital: selectedTier === "digital" || selectedTier === "bundle",
     sheet: selectedTier === "sheet" || selectedTier === "bundle",
   }), [selectedTier]);
 
-  const priceCents = useMemo(() => {
-    if (selectedTier === "bundle") return 899;
-    return 499;
-  }, [selectedTier]);
-  const priceStr = `$${(priceCents / 100).toFixed(2)}`;
+  const formatPrice = useCallback((tier: Tier): string => {
+    if (!localPricing) return "";
+    const amount = localPricing.prices[tier] ?? 0;
+    const divisor = localPricing.zero_decimal ? 1 : 100;
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: localPricing.currency.toUpperCase(),
+        minimumFractionDigits: localPricing.zero_decimal ? 0 : 2,
+      }).format(amount / divisor);
+    } catch {
+      return `${localPricing.currency.toUpperCase()} ${(amount / divisor).toFixed(localPricing.zero_decimal ? 0 : 2)}`;
+    }
+  }, [localPricing, locale]);
+
+  const priceStr = formatPrice(selectedTier);
+  const savingsStr = useMemo(() => {
+    if (!localPricing) return "";
+    const bundleAmt = localPricing.prices.bundle ?? 0;
+    const separateAmt = (localPricing.prices.digital ?? 0) + (localPricing.prices.sheet ?? 0);
+    const saved = separateAmt - bundleAmt;
+    if (saved <= 0) return "";
+    const divisor = localPricing.zero_decimal ? 1 : 100;
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: localPricing.currency.toUpperCase(),
+        minimumFractionDigits: localPricing.zero_decimal ? 0 : 2,
+      }).format(saved / divisor);
+    } catch {
+      return `${(saved / divisor).toFixed(localPricing.zero_decimal ? 0 : 2)}`;
+    }
+  }, [localPricing, locale]);
 
   const [editedSheetPreviewUrl, setEditedSheetPreviewUrl] = useState<string | null>(null);
   const [editedSheetDownloadUrl, setEditedSheetDownloadUrl] = useState<string | null>(null);
@@ -138,6 +185,7 @@ export default function StepDownload({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items,
+          country_name: country.name,
           success_url: window.location.origin + "?paid=true",
           cancel_url: window.location.origin + "?cancelled=true",
         }),
@@ -148,14 +196,29 @@ export default function StepDownload({
     } catch {
       setPurchased({ digital: selection.digital, sheet: selection.sheet });
     } finally { setLoading(false); }
-  }, [selection, priceCents]);
+  }, [selection, country.name]);
 
-  const handleDownload = useCallback(async (kind: "digital" | "sheet") => {
+  const handleDownload = useCallback(async (kind: "digital" | "sheet" | "back" | "backSheet") => {
     setDownloading(kind);
     try {
+      // Back-template downloads bypass photo edits/crop and ship as-is.
+      if (kind === "back" || kind === "backSheet") {
+        const url = kind === "back" ? bundle.backUrl : bundle.backSheetUrl;
+        if (!url) return;
+        const link = document.createElement("a");
+        link.href = url;
+        const baseName = kind === "back" ? "passport_back" : "passport_back_sheet";
+        link.download = `${baseName}_${country.name.toLowerCase().replace(/\s+/g, "_")}.jpg`;
+        link.click();
+        return;
+      }
       const sourceUrl = resolveUrl(kind, "download");
       const noEdits = edits.brightness === 1 && edits.contrast === 1 && edits.saturation === 1 && edits.warmth === 0;
+      const noCrop = cropAdjust.x === 0 && cropAdjust.y === 0 && cropAdjust.zoom === 1;
       let finalUrl = noEdits ? sourceUrl : await bakeEditsToDataUrl(sourceUrl, edits, format);
+      if (!noCrop) {
+        finalUrl = await bakeCropToDataUrl(finalUrl, cropAdjust, spec.bg_color as [number, number, number], format);
+      }
       if (kind === "digital" && format === "jpeg" && spec.max_file_size_kb) {
         finalUrl = await fitJpegUnderKB(finalUrl, spec.max_file_size_kb);
       }
@@ -164,7 +227,7 @@ export default function StepDownload({
       link.download = `${kind === "sheet" ? "passport_photo_sheet" : "passport_photo"}_${country.name.toLowerCase().replace(/\s+/g, "_")}.${format}`;
       link.click();
     } finally { setDownloading(null); }
-  }, [resolveUrl, edits, format, country, spec.max_file_size_kb]);
+  }, [resolveUrl, edits, cropAdjust, format, country, spec.bg_color, spec.max_file_size_kb, bundle.backUrl, bundle.backSheetUrl]);
 
   return (
     <motion.div
@@ -177,12 +240,12 @@ export default function StepDownload({
         onClick={onBack}
         className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-accent-300 transition-colors mb-3"
       >
-        <ArrowLeft className="h-4 w-4" /> Back
+        <ArrowLeft className="h-4 w-4" /> {t("download.back")}
       </button>
 
       <div className="inline-flex items-center gap-2 rounded-full bg-accent-50 border border-[rgba(0,212,255,0.1)] px-3 py-1 text-sm font-semibold text-accent-300 mb-4">
         <span className="text-base">{country.flag}</span>
-        {country.name} &mdash; {docType.charAt(0).toUpperCase() + docType.slice(1)}
+        {country.name} &mdash; {docType === "passport" ? t("country.passport") : t("country.visa")}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
@@ -190,14 +253,40 @@ export default function StepDownload({
         <div className="lg:col-span-3 space-y-4">
           <div className="glass rounded-xl p-5">
             <div className="flex flex-col items-center">
-              <div className="rounded-lg overflow-hidden bg-deep-200 shadow-glow-sm border border-[rgba(0,212,255,0.1)] inline-block">
-                <img src={displayUrl} alt="Final photo" className="max-h-72 object-contain" style={{ filter: cssFilter }} />
+              <div className="flex items-center justify-center gap-4 flex-wrap">
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Front</span>
+                  <div className="rounded-lg overflow-hidden bg-deep-200 shadow-glow-sm border border-[rgba(0,212,255,0.1)] inline-block">
+                    <img
+                      src={displayUrl}
+                      alt="Final photo"
+                      className="max-h-72 object-contain"
+                      style={{
+                        filter: cssFilter,
+                        transform: cropToCssTransform(cropAdjust),
+                        transformOrigin: "center",
+                      }}
+                    />
+                  </div>
+                </div>
+                {(layout === "sheet" ? bundle.backSheetUrl : bundle.backUrl) && (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Back</span>
+                    <div className="rounded-lg overflow-hidden bg-deep-200 shadow-glow-sm border border-[rgba(0,212,255,0.1)] inline-block">
+                      <img
+                        src={layout === "sheet" ? bundle.backSheetUrl : bundle.backUrl}
+                        alt="Photo back template"
+                        className="max-h-72 object-contain"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               <p className="text-[11px] text-slate-500 mt-2.5">
                 {layout === "sheet" ? (
-                  <>4&times;6&quot; print sheet &middot; 6 photos &middot; 350 DPI &middot; {format.toUpperCase()}</>
+                  <>{t("download.printSheetInfo", { format: format.toUpperCase() })}</>
                 ) : (
-                  <>{spec.width_mm}&times;{spec.height_mm}mm &middot; 350 DPI &middot; {format.toUpperCase()} &middot; {variant === "enhanced" ? "AI-enhanced" : "Cropped only"}</>
+                  <>{t("download.digitalInfo", { width: String(spec.width_mm), height: String(spec.height_mm), format: format.toUpperCase(), variant: variant === "enhanced" ? t("download.aiEnhanced") : t("download.croppedOnlyLabel") })}</>
                 )}
               </p>
             </div>
@@ -205,7 +294,7 @@ export default function StepDownload({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Format</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">{t("download.format")}</label>
               <div className="flex gap-2">
                 {(["jpeg", "png"] as const).map((f) => (
                   <button
@@ -224,11 +313,11 @@ export default function StepDownload({
               </div>
             </div>
             <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Preview</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">{t("download.previewLabel")}</label>
               <div className="flex gap-2">
                 {([
-                  { value: "single" as const, label: "Digital", icon: FileImage },
-                  { value: "sheet" as const, label: "4\u00d76\"", icon: Printer },
+                  { value: "single" as const, label: t("download.digital"), icon: FileImage },
+                  { value: "sheet" as const, label: t("download.printSheet"), icon: Printer },
                 ]).map(({ value, label, icon: Icon }) => (
                   <button
                     key={value}
@@ -250,7 +339,7 @@ export default function StepDownload({
           <div className="glass rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <Sliders className="h-4 w-4 text-accent-300" />
-              <h3 className="text-xs font-bold text-white">Customize</h3>
+              <h3 className="text-xs font-bold text-white">{t("download.customize")}</h3>
             </div>
             <PhotoEditor
               variant={variant}
@@ -277,8 +366,8 @@ export default function StepDownload({
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-300/10 border border-accent-300/15">
                 <Sparkles className="h-6 w-6 text-accent-300" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-1">Your Photo is Ready!</h3>
-              <p className="text-xs text-slate-400 mb-4">Edits will be applied to the downloaded file.</p>
+              <h3 className="text-lg font-bold text-white mb-1">{t("download.photoReady")}</h3>
+              <p className="text-xs text-slate-400 mb-4">{t("download.editsApplied")}</p>
 
               <div className="space-y-2">
                 {purchased.digital && (
@@ -293,9 +382,9 @@ export default function StepDownload({
                     )}
                   >
                     {downloading === "digital" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" /> Preparing&hellip;</>
+                      <><Loader2 className="h-4 w-4 animate-spin" /> {t("download.preparing")}</>
                     ) : (
-                      <><Download className="h-4 w-4" /> Download Digital ({format.toUpperCase()})</>
+                      <><Download className="h-4 w-4" /> {t("download.downloadDigital", { format: format.toUpperCase() })}</>
                     )}
                   </motion.button>
                 )}
@@ -311,9 +400,45 @@ export default function StepDownload({
                     )}
                   >
                     {downloading === "sheet" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin" /> Preparing&hellip;</>
+                      <><Loader2 className="h-4 w-4 animate-spin" /> {t("download.preparing")}</>
                     ) : (
-                      <><Printer className="h-4 w-4" /> Download Print Sheet ({format.toUpperCase()})</>
+                      <><Printer className="h-4 w-4" /> {t("download.downloadSheet", { format: format.toUpperCase() })}</>
+                    )}
+                  </motion.button>
+                )}
+                {bundle.backUrl && purchased.digital && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleDownload("back")}
+                    disabled={downloading !== null}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-2 rounded-xl btn-ghost px-6 py-3 text-sm font-bold text-accent-300",
+                      downloading !== null && "opacity-70 cursor-not-allowed",
+                    )}
+                  >
+                    {downloading === "back" ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> {t("download.preparing")}</>
+                    ) : (
+                      <><Download className="h-4 w-4" /> Download Back Template</>
+                    )}
+                  </motion.button>
+                )}
+                {bundle.backSheetUrl && purchased.sheet && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleDownload("backSheet")}
+                    disabled={downloading !== null}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-2 rounded-xl btn-ghost px-6 py-3 text-sm font-bold text-accent-300",
+                      downloading !== null && "opacity-70 cursor-not-allowed",
+                    )}
+                  >
+                    {downloading === "backSheet" ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> {t("download.preparing")}</>
+                    ) : (
+                      <><Printer className="h-4 w-4" /> Download Back Sheet (4×6)</>
                     )}
                   </motion.button>
                 )}
@@ -321,7 +446,7 @@ export default function StepDownload({
 
               <div className="mt-4 pt-3 border-t border-accent-300/10">
                 <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-1.5">
-                  <Mail className="h-3 w-3" /> Email a copy
+                  <Mail className="h-3 w-3" /> {t("download.emailCopy")}
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -329,44 +454,41 @@ export default function StepDownload({
                     placeholder="you@example.com"
                     className="flex-1 rounded-lg border border-[rgba(0,212,255,0.1)] bg-deep-100 px-3 py-2 text-xs text-white outline-none focus:border-accent-300/30 focus:ring-1 focus:ring-accent-300/10 placeholder:text-slate-600"
                   />
-                  <button className="btn-ghost rounded-lg px-3 py-2 text-xs font-medium text-slate-300">Send</button>
+                  <button className="btn-ghost rounded-lg px-3 py-2 text-xs font-medium text-slate-300">{t("download.send")}</button>
                 </div>
               </div>
             </motion.div>
           ) : (
             <div className="glass rounded-xl p-5 glow-border-active">
               <div className="text-center mb-4">
-                <h3 className="text-base font-bold text-white mb-1">Choose Your Package</h3>
-                <p className="text-xs text-slate-500">One-time payment. No subscription.</p>
+                <h3 className="text-base font-bold text-white mb-1">{t("download.choosePackage")}</h3>
+                <p className="text-xs text-slate-500">{t("download.oneTimePayment")}</p>
               </div>
 
               <div className="space-y-2 mb-4">
                 {([
                   {
                     tier: "digital" as Tier,
-                    title: "Digital Download",
-                    price: "$4.99",
-                    desc: `${spec.width_mm}\u00d7${spec.height_mm}mm JPEG${spec.max_file_size_kb ? ` \u00b7 \u2264${spec.max_file_size_kb} KB` : ""} \u00b7 online submission`,
+                    title: t("download.digitalDownload"),
+                    desc: `${spec.width_mm}\u00d7${spec.height_mm}mm JPEG${spec.max_file_size_kb ? ` \u00b7 \u2264${spec.max_file_size_kb} KB` : ""} \u00b7 ${t("download.onlineSubmission")}`,
                     icon: FileImage,
-                    badge: null,
+                    badge: null as string | null,
                   },
                   {
                     tier: "sheet" as Tier,
-                    title: "4\u00d76\" Print Sheet",
-                    price: "$4.99",
-                    desc: "6 photos on one sheet \u00b7 home or lab printing",
+                    title: t("download.printSheetTitle"),
+                    desc: t("download.printSheetDesc"),
                     icon: Printer,
-                    badge: null,
+                    badge: null as string | null,
                   },
                   {
                     tier: "bundle" as Tier,
-                    title: "Bundled Deal",
-                    price: "$8.99",
-                    desc: "Digital download + 4\u00d76\" print sheet \u00b7 best value",
+                    title: t("download.bundledDeal"),
+                    desc: t("download.bundleDesc"),
                     icon: Sparkles,
-                    badge: "Save $0.99",
+                    badge: savingsStr ? `${t("download.saveBadgeLabel")} ${savingsStr}` : null,
                   },
-                ] as const).map(({ tier, title, price, desc, icon: Icon, badge }) => (
+                ]).map(({ tier, title, desc, icon: Icon, badge }) => (
                   <button
                     key={tier}
                     type="button"
@@ -396,7 +518,7 @@ export default function StepDownload({
                           <Icon className="h-3.5 w-3.5 text-accent-300/70" />
                           {title}
                         </span>
-                        <span className="text-sm font-bold text-accent-300">{price}</span>
+                        <span className="text-sm font-bold text-accent-300">{formatPrice(tier)}</span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">{desc}</p>
                     </div>
@@ -411,7 +533,7 @@ export default function StepDownload({
 
               <div className="text-center mb-4">
                 <span className="text-3xl font-extrabold gradient-text">{priceStr}</span>
-                <p className="text-[11px] text-slate-600 mt-1">USD &middot; Secure Stripe checkout</p>
+                <p className="text-[11px] text-slate-600 mt-1">{localPricing?.currency.toUpperCase() ?? "USD"} · {t("download.stripeCheckout")}</p>
               </div>
 
               <motion.button
@@ -427,15 +549,15 @@ export default function StepDownload({
                 )}
               >
                 {loading ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting&hellip;</>
+                  <><Loader2 className="h-4 w-4 animate-spin" /> {t("download.redirecting")}</>
                 ) : (
-                  <><CreditCard className="h-4 w-4" /> Pay {priceStr} &amp; Download</>
+                  <><CreditCard className="h-4 w-4" /> {t("download.payButton", { price: priceStr })}</>
                 )}
               </motion.button>
 
               <div className="flex items-center justify-center gap-4 mt-3 text-[11px] text-slate-600">
-                <span className="flex items-center gap-1"><Lock className="h-3 w-3" /> Secure</span>
-                <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> Stripe</span>
+                <span className="flex items-center gap-1"><Lock className="h-3 w-3" /> {t("download.secure")}</span>
+                <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> {t("download.stripe")}</span>
               </div>
             </div>
           )}

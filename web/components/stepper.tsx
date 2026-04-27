@@ -3,19 +3,22 @@
 import { Globe, Upload, Eye, Download, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { useTranslation } from "@/lib/i18n";
 
 interface StepperProps {
   currentStep: number;
 }
 
-const STEPS = [
-  { label: "Country", icon: Globe },
-  { label: "Upload", icon: Upload },
-  { label: "Preview", icon: Eye },
-  { label: "Download", icon: Download },
-];
-
 export default function Stepper({ currentStep }: StepperProps) {
+  const { t } = useTranslation();
+
+  const STEPS = [
+    { label: t("stepper.country"), icon: Globe },
+    { label: t("stepper.upload"), icon: Upload },
+    { label: t("stepper.preview"), icon: Eye },
+    { label: t("stepper.download"), icon: Download },
+  ];
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-4">
       <div className="flex items-center justify-between">
@@ -26,7 +29,7 @@ export default function Stepper({ currentStep }: StepperProps) {
           const isTodo = i > currentStep;
 
           return (
-            <div key={step.label} className="flex items-center flex-1 last:flex-none">
+            <div key={i} className="flex items-center flex-1 last:flex-none">
               <div className="flex flex-col items-center gap-1.5">
                 <motion.div
                   initial={false}

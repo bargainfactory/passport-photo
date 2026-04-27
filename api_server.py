@@ -18,14 +18,18 @@ from PIL import Image
 
 from processing.face_detection import detect_face, detect_eyes, compute_face_metrics
 from processing.background import remove_background, replace_background
-from processing.crop_resize import crop_and_center, mm_to_px, detect_crown_shift, apply_crown_shift, ensure_crown_clearance
+from processing.crop_resize import crop_and_center, crop_raw, mm_to_px, detect_crown_shift, apply_crown_shift, ensure_crown_clearance, flush_subject_bottom
 from processing.validation import validate_photo
 from processing.print_sheet import create_print_sheet
+from processing.back_template import create_back_template, create_back_print_sheet
 from processing.enhance import full_enhance_pipeline
 from processing.straighten import straighten_image
 from processing.inpaint import inpaint_region
+from processing.upscale import upscale_pil
+from processing.shoulder_extend import extend_shoulders
 from config.constants import PREVIEW_DPI, DOWNLOAD_DPI
 from utils.image_helpers import bytes_to_cv2, cv2_to_pil, pil_to_cv2, pil_to_bytes
+from utils.currency import get_currency_for_country, convert_usd_cents, get_localized_pricing
 
 app = FastAPI(title="PhotoPass Processing API")
 
@@ -37,6 +41,12 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+
+@app.on_event("startup")
+def _preload_models():
+    """Lazy model load — first request triggers it. Keeps server start fast."""
+    pass
 
 # --- Stripe configuration ---
 def _load_stripe_key():
@@ -72,7 +82,9 @@ class ProcessRequest(BaseModel):
     bg_color: list[int]  # [R, G, B]
     head_pct: list[int]  # [min, max]
     eye_line_pct: list[int]  # [min, max]
+    crown_top_mm: float | None = None
     print_sheet: PrintSheetConfig | None = None
+    country_name: str | None = None  # used to opt into Canada back template
 
 
 class ProcessResponse(BaseModel):
@@ -95,6 +107,9 @@ class ProcessResponse(BaseModel):
     original_processed_b64: str
     original_sheet_b64: str
     validation: list[dict]
+    # Optional guarantor back template
+    back_b64: str | None = None        # single back panel @ DOWNLOAD_DPI
+    back_sheet_b64: str | None = None  # ganged back sheet @ DOWNLOAD_DPI
 
 
 def _decode_image(image_b64: str) -> bytes:
@@ -122,6 +137,8 @@ def process_photo(req: ProcessRequest):
         "head_pct": tuple(req.head_pct),
         "eye_line_pct": tuple(req.eye_line_pct),
     }
+    if req.crown_top_mm is not None:
+        spec["crown_top_mm"] = req.crown_top_mm
 
     try:
         return _run_pipeline(image_bytes, spec, req)
@@ -182,48 +199,62 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
 
     enhanced_full_bgr = full_enhance_pipeline(straightened, face_rect)
 
-    # --- Step 4: Crop both variants to 600 DPI (bg still present) ---
+    # --- Step 4: Crop ---
     straightened_pil = cv2_to_pil(straightened)
     enhanced_pil = cv2_to_pil(enhanced_full_bgr)
 
-    orig_crop = crop_and_center(straightened_pil, face_metrics, spec, dpi=PREVIEW_DPI)
+    # "Cropped Only" variant: plain geometric crop, no edits, subject flush with bottom
+    orig_preview = crop_raw(straightened_pil, face_metrics, spec, dpi=PREVIEW_DPI)
+
+    # Enhanced variant: crop → bg removal → composite → shoulders → crown → upscale
     enh_crop = crop_and_center(enhanced_pil, face_metrics, spec, dpi=PREVIEW_DPI)
 
-    # --- Step 5: Background removal at 600 DPI ---
-    # Single segmentation pass on the original crop; the alpha mask is
-    # shared with the enhanced variant (identical crop geometry).
-    orig_crop_bytes = pil_to_bytes(orig_crop, fmt="PNG")
-    rgba_crop = remove_background(orig_crop_bytes)
-    alpha_channel = rgba_crop.split()[3]
+    # --- Step 5: Background removal at high DPI ---
+    # Crop the enhanced image at 1200 DPI (2× the preview DPI) and run
+    # bg removal on this larger image. PyMatting alpha matting resolves
+    # finer hair strands when given more pixels in the edge band.
+    # The RGBA result is then downsampled to PREVIEW_DPI for the rest
+    # of the pipeline.
+    BG_REMOVAL_DPI = 1200
+    enh_crop_hires = crop_and_center(
+        enhanced_pil, face_metrics, spec, dpi=BG_REMOVAL_DPI,
+    )
+    enh_crop_bytes = pil_to_bytes(enh_crop_hires, fmt="PNG")
+    enh_rgba_hires = remove_background(enh_crop_bytes)
+    enh_rgba = enh_rgba_hires.resize(enh_crop.size, Image.LANCZOS)
+    alpha_channel = enh_rgba.split()[3]
 
-    # Apply same alpha to enhanced crop
-    enh_crop_rgba = enh_crop.convert("RGBA")
-    enh_rgba = Image.merge("RGBA", (*enh_crop_rgba.split()[:3], alpha_channel))
-
-    # --- Step 6: Composite onto background color ---
+    # --- Step 6: Composite enhanced onto background color ---
     bg_color = tuple(req.bg_color)
-    orig_preview = replace_background(rgba_crop, bg_color)
     enh_preview = replace_background(enh_rgba, bg_color)
-    orig_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
     enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
 
-    # --- Step 6b: Enforce crown clearance on composited result ---
-    # Detect the shift from the original (unmodified colors are more reliable
-    # for crown detection — enhancement can lighten hair near the edges).
-    # Apply the same shift to both variants so they stay aligned.
-    crown_mm = spec.get("crown_top_mm", 3)
-    shift = detect_crown_shift(orig_preview, bg_color, crown_mm, dpi=PREVIEW_DPI)
-    orig_preview = apply_crown_shift(orig_preview, shift, bg_color, dpi=PREVIEW_DPI)
-    enh_preview = apply_crown_shift(enh_preview, shift, bg_color, dpi=PREVIEW_DPI)
+    # --- Step 6a: Extend shoulders (enhanced only) ---
+    import numpy as np
+    alpha_np = np.array(alpha_channel)
+    enh_preview = extend_shoulders(enh_preview, alpha_np, bg_color)
+    enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
+
+    # --- Step 6a2: Flush subject to bottom edge ---
+    enh_preview = flush_subject_bottom(enh_preview, bg_color, dpi=PREVIEW_DPI)
+
+    # --- Step 6b: AI super-resolution (enhanced only) ---
+    preview_size = enh_preview.size
+    enh_upscaled = upscale_pil(enh_preview)
+    enh_preview = enh_upscaled.resize(preview_size, Image.LANCZOS)
+    enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
 
     # --- Step 7: Validation ---
+    # Detect face once on the cropped/enhanced preview. We deliberately
+    # skip re-running eye detection (Haar) and recomputing metrics here
+    # — the post-crop face_rect is sufficient for the geometric checks,
+    # and tilt is already known from the original detection.
     enhanced_bgr = pil_to_cv2(enh_preview)
     val_face = detect_face(enhanced_bgr)
-    if val_face is not None:
-        val_eyes = detect_eyes(enhanced_bgr, val_face)
-        val_metrics = compute_face_metrics(val_face, enhanced_bgr.shape, val_eyes)
-    else:
-        val_metrics = face_metrics
+    val_metrics = (
+        compute_face_metrics(val_face, enhanced_bgr.shape)
+        if val_face is not None else face_metrics
+    )
     validation_results = validate_photo(
         enhanced_bgr, val_face or face_rect, val_metrics, spec,
     )
@@ -232,7 +263,8 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
     download_w = mm_to_px(spec["width_mm"], DOWNLOAD_DPI)
     download_h = mm_to_px(spec["height_mm"], DOWNLOAD_DPI)
 
-    enh_processed = enh_preview.resize((download_w, download_h), Image.LANCZOS)
+    # Downsample from the 2x upscaled version for maximum detail
+    enh_processed = enh_upscaled.resize((download_w, download_h), Image.LANCZOS)
     enh_processed.info["dpi"] = (DOWNLOAD_DPI, DOWNLOAD_DPI)
 
     orig_processed = orig_preview.resize((download_w, download_h), Image.LANCZOS)
@@ -252,6 +284,31 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
     orig_preview_sheet = create_print_sheet(orig_preview, dpi=PREVIEW_DPI, **sheet_kwargs)
     orig_sheet = create_print_sheet(orig_processed, dpi=DOWNLOAD_DPI, **sheet_kwargs)
 
+    # --- Step 9b: Guarantor back template (always generated) ---
+    try:
+        back_img = create_back_template(
+            width_mm=spec["width_mm"],
+            height_mm=spec["height_mm"],
+            dpi=DOWNLOAD_DPI,
+        )
+        back_sheet_img = create_back_print_sheet(
+            width_mm=spec["width_mm"],
+            height_mm=spec["height_mm"],
+            dpi=DOWNLOAD_DPI,
+            orientation=sheet_kwargs["orientation"],
+            cols=sheet_kwargs["cols"],
+            rows=sheet_kwargs["rows"],
+            separator_mm=sheet_kwargs["separator_mm"],
+            y_offset_mm=sheet_kwargs["y_offset_mm"],
+        )
+        print(f"[back-template] Generated back={back_img.size} sheet={back_sheet_img.size}")
+    except Exception as exc:
+        import traceback
+        print(f"[back-template] FAILED: {exc}")
+        traceback.print_exc()
+        back_img = None
+        back_sheet_img = None
+
     def _b64(pil_img, quality=95):
         return "data:image/jpeg;base64," + base64.b64encode(
             pil_to_bytes(pil_img, fmt="JPEG", quality=quality)
@@ -266,6 +323,8 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
         original_preview_sheet_b64=_b64(orig_preview_sheet, quality=92),
         original_processed_b64=_b64(orig_processed),
         original_sheet_b64=_b64(orig_sheet),
+        back_b64=_b64(back_img) if back_img is not None else None,
+        back_sheet_b64=_b64(back_sheet_img, quality=92) if back_sheet_img is not None else None,
         validation=[
             {"check": str(v["check"]), "passed": bool(v["passed"]), "message": str(v["message"])}
             for v in validation_results
@@ -280,28 +339,44 @@ class CheckoutRequest(BaseModel):
     buy either product on its own or both together (bundle-priced).
     """
     items: list[str] = ["digital"]
+    country_name: str = ""
     success_url: str = "http://localhost:3000?paid=true"
     cancel_url: str = "http://localhost:3000?cancelled=true"
 
 
-# (items-key, price cents, Stripe product name)
-_ITEM_PRICING = {
+_ITEM_PRICING_USD = {
     frozenset({"digital"}): (499, "Passport Photo — Digital Download"),
-    frozenset({"sheet"}): (499, "Passport Photo — 4x6\" Print Sheet"),
-    frozenset({"digital", "sheet"}): (899, "Passport Photo — Bundled Deal (Digital + 4x6\" Print Sheet)"),
+    frozenset({"sheet"}): (499, "Passport Photo — 4×6\" Print Sheet"),
+    frozenset({"digital", "sheet"}): (899, "Passport Photo — Bundled Deal (Digital + 4×6\" Print Sheet)"),
 }
+
+_BASE_PRICES_USD = {"digital": 499, "sheet": 499, "bundle": 899}
+
+
+@app.get("/api/pricing")
+def get_pricing(country: str = ""):
+    """Return localized pricing for the given country.
+
+    The frontend calls this when the user reaches the download step so
+    prices can be displayed in the customer's local currency.
+    """
+    pricing = get_localized_pricing(country, _BASE_PRICES_USD)
+    return pricing
 
 
 @app.post("/api/create-checkout")
 def create_checkout(req: CheckoutRequest):
-    """Create a Stripe Checkout Session and return the URL."""
+    """Create a Stripe Checkout Session in the customer's local currency."""
     if not stripe.api_key:
         raise HTTPException(500, "Stripe is not configured")
 
     valid = sorted({i for i in req.items if i in {"digital", "sheet"}})
     if not valid:
         raise HTTPException(400, "Must select at least one item")
-    price_cents, product_name = _ITEM_PRICING[frozenset(valid)]
+    usd_cents, product_name = _ITEM_PRICING_USD[frozenset(valid)]
+
+    currency = get_currency_for_country(req.country_name) if req.country_name else "usd"
+    local_amount = convert_usd_cents(usd_cents, currency)
 
     try:
         session = stripe.checkout.Session.create(
@@ -309,17 +384,15 @@ def create_checkout(req: CheckoutRequest):
             mode="payment",
             line_items=[{
                 "price_data": {
-                    "currency": "usd",
+                    "currency": currency,
                     "product_data": {
                         "name": product_name,
                         "description": "Compliant passport or visa photo — 350 DPI print-ready, JPEG + PNG",
                     },
-                    "unit_amount": price_cents,
+                    "unit_amount": local_amount,
                 },
                 "quantity": 1,
             }],
-            # Persist what was bought so verify-payment can gate downloads
-            # to the purchased items only.
             metadata={"items": ",".join(valid)},
             success_url=req.success_url + "&session_id={CHECKOUT_SESSION_ID}",
             cancel_url=req.cancel_url,
