@@ -53,16 +53,16 @@ COUNTRY_SPECS = {
         "passport": {
             "width_mm": 51, "height_mm": 51,  # 2x2 inches
             "bg_color": (255, 255, 255),
-            # Head height ≈ 1.34" (34.2mm = 67% of the 2" frame), with
-            # 3mm crown clearance at the top.
-            "head_pct": (67, 67),
+            # Head height = 33mm (≈ 64.7% of the 51mm frame), with 3mm
+            # crown clearance — leaves the lower 15mm for shoulders/body.
+            "head_pct": (64.7, 64.7),
             "eye_line_pct": (56, 69),
             "crown_top_mm": 3,
         },
         "visa": {
             "width_mm": 51, "height_mm": 51,
             "bg_color": (255, 255, 255),
-            "head_pct": (67, 67),
+            "head_pct": (64.7, 64.7),
             "eye_line_pct": (56, 69),
             "crown_top_mm": 3,
         },

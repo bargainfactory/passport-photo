@@ -1,10 +1,12 @@
-"""Extend shoulders to fill the bottom gap in cropped passport photos.
+"""Extend shoulders to fill bottom and side gaps in cropped passport photos.
 
-After cropping to spec, the subject's body may not reach the bottom of
-the frame, leaving background-colored space below the shoulders. This
-module detects that gap and fills it by stretching the clothing colors
-downward with a natural gradient, then smoothing the seam with
-inpainting — the same principle as Photoshop's Content-Aware Fill.
+After cropping to spec, the subject's body may not reach the bottom or
+the sides of the frame, leaving background-coloured space around the
+shoulders. This module detects those gaps and fills them by extending
+the clothing colours outward — `extend_shoulders` stretches downward
+with a natural gradient and `extend_sides` inpaints the lateral margins
+from the body's boundary outward — the same principle as Photoshop's
+Content-Aware Fill.
 """
 
 import cv2
@@ -96,3 +98,59 @@ def extend_shoulders(
         result = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
 
     return Image.fromarray(result)
+
+
+def extend_sides(
+    pil_image: Image.Image,
+    bg_color_rgb: tuple,
+    body_start_y: int,
+    bg_tolerance: int = 12,
+) -> Image.Image:
+    """Fill the body region below the chin so no background remains there.
+
+    Every background-coloured pixel below ``body_start_y`` (the chin
+    line) is inpainted from the surrounding body pixels.  This fills
+    both the lateral margins beside the shoulders and any vertical gap
+    between the bottom of the subject and the bottom of the frame, so
+    the lower portion of the frame is fully covered by shoulders/body
+    content per spec.  The head/neck above ``body_start_y`` is left
+    untouched, preserving the clean background required around the
+    head.
+
+    Args:
+        pil_image:    Composited RGB passport photo (PIL Image).
+        bg_color_rgb: (R, G, B) background colour tuple.
+        body_start_y: Pixel Y of the chin line.  Background pixels at
+                      or below this row are filled; rows above are
+                      preserved.  Computed by the caller from the spec
+                      geometry (crown position + head height).
+        bg_tolerance: Per-channel deviation under which a pixel counts
+                      as background.
+
+    Returns:
+        PIL Image with the body region filled.  DPI metadata is
+        preserved.  Returns the input unchanged when no fill is needed.
+    """
+    w, h = pil_image.size
+    body_start_y = max(0, min(body_start_y, h - 1))
+    if body_start_y >= h - 1:
+        return pil_image
+
+    img = np.array(pil_image)
+    bg = np.array(bg_color_rgb, dtype=np.int16)
+    diff = np.max(np.abs(img.astype(np.int16) - bg), axis=2)
+    is_bg = diff <= bg_tolerance
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    mask[body_start_y:] = is_bg[body_start_y:].astype(np.uint8) * 255
+
+    if not np.any(mask):
+        return pil_image
+
+    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    inpainted = cv2.inpaint(bgr, mask, 7, cv2.INPAINT_TELEA)
+
+    out = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
+    if "dpi" in pil_image.info:
+        out.info["dpi"] = pil_image.info["dpi"]
+    return out

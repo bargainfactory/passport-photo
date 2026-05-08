@@ -26,7 +26,7 @@ from processing.enhance import full_enhance_pipeline
 from processing.straighten import straighten_image
 from processing.inpaint import inpaint_region
 from processing.upscale import upscale_pil
-from processing.shoulder_extend import extend_shoulders
+from processing.shoulder_extend import extend_shoulders, extend_sides
 from config.constants import PREVIEW_DPI, DOWNLOAD_DPI
 from utils.image_helpers import bytes_to_cv2, cv2_to_pil, pil_to_cv2, pil_to_bytes
 from utils.currency import get_currency_for_country, convert_usd_cents, get_localized_pricing
@@ -203,8 +203,18 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
     straightened_pil = cv2_to_pil(straightened)
     enhanced_pil = cv2_to_pil(enhanced_full_bgr)
 
+    # Chin Y in the cropped frame, derived from spec geometry — used to
+    # bound where shoulder/body fill is allowed (everything below it).
+    _out_h_px = mm_to_px(spec["height_mm"], PREVIEW_DPI)
+    _hp_min, _hp_max = spec["head_pct"]
+    _hp_target = _hp_min + (_hp_max - _hp_min) * 0.25
+    _target_head_px = _out_h_px * (_hp_target / 100.0)
+    _crown_px = mm_to_px(spec.get("crown_top_mm") or 3, PREVIEW_DPI)
+    chin_y = int(_crown_px + _target_head_px)
+
     # "Cropped Only" variant: plain geometric crop, no edits, subject flush with bottom
     orig_preview = crop_raw(straightened_pil, face_metrics, spec, dpi=PREVIEW_DPI)
+    orig_preview = extend_sides(orig_preview, (255, 255, 255), chin_y)
 
     # Enhanced variant: crop → bg removal → composite → shoulders → crown → upscale
     enh_crop = crop_and_center(enhanced_pil, face_metrics, spec, dpi=PREVIEW_DPI)
@@ -237,6 +247,10 @@ def _run_pipeline(image_bytes: bytes, spec: dict, req: ProcessRequest) -> Proces
 
     # --- Step 6a2: Flush subject to bottom edge ---
     enh_preview = flush_subject_bottom(enh_preview, bg_color, dpi=PREVIEW_DPI)
+
+    # --- Step 6a3: Fill the body region below the chin (sides + any bottom gap) ---
+    enh_preview = extend_sides(enh_preview, bg_color, chin_y)
+    enh_preview.info["dpi"] = (PREVIEW_DPI, PREVIEW_DPI)
 
     # --- Step 6b: AI super-resolution (enhanced only) ---
     preview_size = enh_preview.size
